@@ -1,0 +1,31 @@
+# Конфигурации
+config.py
+
+# База данных
+users.db
+
+# PDF-билеты
+tickets/*.pdf
+
+# Файлы Python-компиляции
+__pycache__/
+*.pyc
+*.pyo
+
+# Виртуальное окружение
+venv/
+env/
+
+# IDE-штуки
+.vscode/
+.idea/
+
+# Логи
+*.log
+
+# Бэкапы и временные файлы
+*.bak
+*.tmp
+*.swp
+user.txt
+wave_start.txt
