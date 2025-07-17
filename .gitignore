@@ -1,31 +1,21 @@
-# Конфигурации
-config.py
-
-# База данных
-users.db
-
-# PDF-билеты
-tickets/*.pdf
-
-# Файлы Python-компиляции
+# Python
 __pycache__/
 *.pyc
-*.pyo
 
 # Виртуальное окружение
 venv/
-env/
 
-# IDE-штуки
-.vscode/
-.idea/
+# База данных (локальные данные)
+users.db
 
-# Логи
+# Лог или временные файлы
 *.log
+temp_*.zip
 
-# Бэкапы и временные файлы
-*.bak
-*.tmp
-*.swp
-user.txt
-wave_start.txt
+# Секреты (если появятся)
+config.py
+
+# Изображения, медиа и прочее
+*.jpg
+*.png
+tickets/*.pdf
