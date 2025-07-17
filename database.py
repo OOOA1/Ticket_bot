@@ -74,3 +74,34 @@ def assign_ticket(file_path, user_id):
     conn.commit()
     conn.close()
     update_user_ticket_time(user_id, now)
+
+def get_wave_stats(wave_start):
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+    # Количество пользователей, получивших билет в этой волне
+    cur.execute("SELECT COUNT(*) FROM users WHERE last_ticket_at >= ?", (wave_start.isoformat(),))
+    users_with_ticket = cur.fetchone()[0]
+    # Количество невыданных билетов
+    cur.execute("SELECT COUNT(*) FROM tickets WHERE assigned_to IS NULL")
+    free_tickets = cur.fetchone()[0]
+    # Всего пользователей
+    cur.execute("SELECT COUNT(*) FROM users")
+    all_users = cur.fetchone()[0]
+    conn.close()
+    return users_with_ticket, free_tickets, all_users
+
+def get_user_id_by_username(username):
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE username=?", (username,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def get_all_user_ids():
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users")
+    user_ids = [row[0] for row in cur.fetchall()]
+    conn.close()
+    return user_ids
