@@ -73,6 +73,11 @@ def register_admin_handlers(bot):
             bot.send_message(message.chat.id, "🚫 Нельзя начать волну — нет доступных билетов. Сначала загрузите билеты через /upload_zip.")
             return
 
+        if get_free_ticket_count() == 0:
+            bot.send_message(message.chat.id, "🚫 Волна не может быть запущена — в папке нет доступных билетов.")
+            logger.warning(f"🛑 Попытка запуска волны без билетов админом {message.from_user.id}")
+            return
+
         now = create_new_wave(message.from_user.id)
         bot.send_message(message.chat.id, f"Новая волна началась! Время: {now}")
 
@@ -422,10 +427,16 @@ def register_admin_handlers(bot):
         )
         bot.send_message(message.chat.id, text, parse_mode="HTML")
 
-def archive_old_tickets():
-    pdf_files = [f for f in os.listdir(DEFAULT_TICKET_FOLDER) if f.lower().endswith('.pdf')]
+def archive_old_tickets(exclude_files=None):
+    if exclude_files is None:
+        exclude_files = []
+
+    pdf_files = [
+        f for f in os.listdir(DEFAULT_TICKET_FOLDER)
+        if f.lower().endswith('.pdf') and f not in [os.path.basename(path) for path in exclude_files]
+    ]
     if not pdf_files:
-        return None  # Нечего архивировать
+        return None
 
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
     temp_folder = os.path.join("archive", f"_temp_{now}")
@@ -433,36 +444,35 @@ def archive_old_tickets():
 
     os.makedirs(temp_folder, exist_ok=True)
 
-    # Перемещаем PDF-файлы во временную папку
+    # Перемещаем только файлы, которые не исключены
     for file_name in pdf_files:
         src = os.path.join(DEFAULT_TICKET_FOLDER, file_name)
         dst = os.path.join(temp_folder, file_name)
         os.rename(src, dst)
 
-    # Упаковываем во .zip
     with ZipFile(zip_path, 'w') as zipf:
         for file_name in os.listdir(temp_folder):
             file_path = os.path.join(temp_folder, file_name)
             zipf.write(file_path, arcname=file_name)
 
-    # Удаляем временную папку
     shutil.rmtree(temp_folder)
 
+    def cleanup_old_archives(keep_last=3):
+        archive_files = sorted([
+            f for f in os.listdir("archive") if f.endswith(".zip")
+        ])
+        to_delete = archive_files[:-keep_last]
+        for filename in to_delete:
+            os.remove(os.path.join("archive", filename))
+            logger.info(f"🗑 Удалён старый архив: {filename}")
+
+    cleanup_old_archives()
     return zip_path
 
 def process_zip(zip_path, uploaded_by, bot):
-    archive_result = archive_old_tickets()
-    if archive_result:
-        bot.send_message(
-            uploaded_by,
-            f"📦 Старые билеты были перемещены в архив:\n<code>{archive_result}</code>",
-            parse_mode="HTML"
-        )
-        logger.info(f"Архив старых билетов создан: {archive_result}")
-    if archive_result:
-        print(f"🎒 Сохранён архив старых билетов: {archive_result}")
-
     added, duplicates, not_pdf = [], [], []
+    new_file_paths = []
+
     with ZipFile(zip_path, 'r') as zip_ref:
         for file_info in zip_ref.infolist():
             original_name = file_info.filename
@@ -480,8 +490,16 @@ def process_zip(zip_path, uploaded_by, bot):
                 f.write(content)
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
             added.append((original_name, uuid_name))
+            new_file_paths.append(full_path)
 
-    report_lines = ["=== Отчёт по загрузке билетов ===", f"Добавлено новых файлов: {len(added)}", f"Пропущено дубликатов: {len(duplicates)}", f"Пропущено не PDF: {len(not_pdf)}", ""]
+    # report как раньше...
+    report_lines = [
+        "=== Отчёт по загрузке билетов ===",
+        f"Добавлено новых файлов: {len(added)}",
+        f"Пропущено дубликатов: {len(duplicates)}",
+        f"Пропущено не PDF: {len(not_pdf)}",
+        ""
+    ]
     if added:
         report_lines.append("✅ Добавлены:")
         report_lines.extend([f"- {orig} → {new}" for orig, new in added])
@@ -495,7 +513,30 @@ def process_zip(zip_path, uploaded_by, bot):
     report_text = "\n".join(report_lines)
     with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt', encoding='utf-8') as temp_file:
         temp_file.write(report_text)
-        return temp_file.name
+        report_path = temp_file.name
+
+    if not added:
+        error_msg = "❗️ Ни одного нового билета не загружено — все файлы были дубликатами или не PDF."
+        logger.warning(error_msg)
+        try:
+            bot.send_message(uploaded_by, error_msg)
+        except Exception as e:
+            logger.error(f"Не удалось отправить сообщение админу {uploaded_by}: {e}")
+        raise Exception(error_msg)
+
+    # ✅ теперь передаём новые пути, чтобы они НЕ были архивированы
+    archive_result = archive_old_tickets(exclude_files=new_file_paths)
+    if archive_result:
+        bot.send_message(
+            uploaded_by,
+            f"📦 Старые билеты были перемещены в архив:\n<code>{archive_result}</code>",
+            parse_mode="HTML"
+        )
+        logger.info(f"Архив старых билетов создан: {archive_result}")
+
+    return report_path
+
+
 
 upload_waiting = {}
 
