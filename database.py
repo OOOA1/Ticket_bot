@@ -3,6 +3,7 @@ from datetime import datetime
 
 def init_db():
     conn = sqlite3.connect("users.db")
+    init_wave_table()
     cur = conn.cursor()
 
     cur.execute("""
@@ -105,3 +106,32 @@ def get_all_user_ids():
     user_ids = [row[0] for row in cur.fetchall()]
     conn.close()
     return user_ids
+
+def init_wave_table():
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS waves (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        wave_start TEXT NOT NULL
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+def create_new_wave():
+    now = datetime.now().replace(microsecond=0).isoformat(" ")
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+    cur.execute("INSERT INTO waves (wave_start) VALUES (?)", (now,))
+    conn.commit()
+    conn.close()
+    return now
+
+def get_latest_wave():
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+    cur.execute("SELECT wave_start FROM waves ORDER BY wave_start DESC LIMIT 1")
+    row = cur.fetchone()
+    conn.close()
+    return datetime.fromisoformat(row[0]) if row else None

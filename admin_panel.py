@@ -10,6 +10,7 @@ from database import get_user_id_by_username, get_user_last_ticket_time, get_fre
 from zipfile import ZipFile
 import tempfile
 import logging
+from database import create_new_wave
 
 ADMINS_FILE = "admins.txt"
 FOUNDER_IDS = [781477708, 5477727657]
@@ -65,11 +66,7 @@ def register_admin_handlers(bot):
             bot.reply_to(message, "У вас нет прав запускать новую волну.")
             return
 
-        now = datetime.now().replace(microsecond=0)
-        with open(WAVE_FILE, "w") as f:
-            f.write(now.isoformat(" "))
-        with open("waves.txt", "a") as f:
-            f.write(now.isoformat(" ") + "\n")
+        now = create_new_wave()
         bot.send_message(message.chat.id, f"Новая волна началась! Время: {now}")
 
     @bot.message_handler(commands=['delete_all'])
