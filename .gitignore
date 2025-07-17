@@ -20,3 +20,4 @@ config.py
 *.png
 tickets/*.pdf
 admins.txt
+*.zip

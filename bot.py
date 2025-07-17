@@ -6,11 +6,11 @@ from database import get_latest_wave
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-from admin_panel import register_admin_handlers
-register_admin_handlers(bot)
+import admin_panel
+admin_panel.register_admin_handlers(bot)
 
 init_db()
-sync_ticket_folder(DEFAULT_TICKET_FOLDER)
+# sync_ticket_folder(DEFAULT_TICKET_FOLDER)
 
 
 

@@ -5,12 +5,15 @@ from datetime import datetime
 from telebot import types
 from database import get_all_user_ids
 from config import WAVE_FILE, DEFAULT_TICKET_FOLDER
-from database import sync_ticket_folder
-from database import get_user_id_by_username, get_user_last_ticket_time, get_free_ticket, assign_ticket
+# from database import sync_ticket_folder
+from database import get_user_id_by_username, get_user_last_ticket_time, get_free_ticket, assign_ticket, insert_ticket, is_duplicate_hash, get_free_ticket_count  
 from zipfile import ZipFile
 import tempfile
 import logging
 from database import create_new_wave
+from uuid import uuid4
+import hashlib
+import shutil
 
 ADMINS_FILE = "admins.txt"
 FOUNDER_IDS = [781477708, 5477727657]
@@ -66,7 +69,11 @@ def register_admin_handlers(bot):
             bot.reply_to(message, "У вас нет прав запускать новую волну.")
             return
 
-        now = create_new_wave()
+        if get_free_ticket_count() == 0:
+            bot.send_message(message.chat.id, "🚫 Нельзя начать волну — нет доступных билетов. Сначала загрузите билеты через /upload_zip.")
+            return
+
+        now = create_new_wave(message.from_user.id)
         bot.send_message(message.chat.id, f"Новая волна началась! Время: {now}")
 
     @bot.message_handler(commands=['delete_all'])
@@ -82,7 +89,7 @@ def register_admin_handlers(bot):
                 os.remove(path)
                 count += 1
         bot.send_message(message.chat.id, f"Удалено файлов: {count}")
-        sync_ticket_folder(DEFAULT_TICKET_FOLDER)
+        # sync_ticket_folder(DEFAULT_TICKET_FOLDER)
 
     @bot.message_handler(commands=['list_tickets'])
     @admin_error_catcher(bot)
@@ -128,26 +135,22 @@ def register_admin_handlers(bot):
             if not doc.file_name.endswith('.zip'):
                 bot.reply_to(message, "Пожалуйста, пришли .zip архив.")
                 return
-
             try:
                 file_info = bot.get_file(doc.file_id)
                 downloaded = bot.download_file(file_info.file_path)
-
                 zip_path = f"temp_upload_{user_id}.zip"
                 with open(zip_path, 'wb') as f:
                     f.write(downloaded)
-
-                with ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(DEFAULT_TICKET_FOLDER)
-
+                report_path = process_zip(zip_path, uploaded_by=user_id, bot=bot)
+                with open(report_path, 'rb') as rep:
+                    bot.send_document(message.chat.id, rep, caption="📄 Отчёт о загрузке билетов")
+                os.remove(report_path)
                 os.remove(zip_path)
-                sync_ticket_folder(DEFAULT_TICKET_FOLDER)
-                bot.send_message(message.chat.id, "Билеты успешно загружены.")
             except Exception as e:
                 bot.send_message(message.chat.id, "Ошибка при загрузке архива.")
-                print(f"Ошибка при обработке архива: {e}")
-
+                logger.error(f"Ошибка при обработке архива: {e}", exc_info=True)
             upload_waiting[user_id] = False
+
 
     @bot.message_handler(commands=['myid'])
     @admin_error_catcher(bot)
@@ -418,3 +421,81 @@ def register_admin_handlers(bot):
             "/help — вывести это меню\n"
         )
         bot.send_message(message.chat.id, text, parse_mode="HTML")
+
+def archive_old_tickets():
+    pdf_files = [f for f in os.listdir(DEFAULT_TICKET_FOLDER) if f.lower().endswith('.pdf')]
+    if not pdf_files:
+        return None  # Нечего архивировать
+
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    temp_folder = os.path.join("archive", f"_temp_{now}")
+    zip_path = os.path.join("archive", f"{now}.zip")
+
+    os.makedirs(temp_folder, exist_ok=True)
+
+    # Перемещаем PDF-файлы во временную папку
+    for file_name in pdf_files:
+        src = os.path.join(DEFAULT_TICKET_FOLDER, file_name)
+        dst = os.path.join(temp_folder, file_name)
+        os.rename(src, dst)
+
+    # Упаковываем во .zip
+    with ZipFile(zip_path, 'w') as zipf:
+        for file_name in os.listdir(temp_folder):
+            file_path = os.path.join(temp_folder, file_name)
+            zipf.write(file_path, arcname=file_name)
+
+    # Удаляем временную папку
+    shutil.rmtree(temp_folder)
+
+    return zip_path
+
+def process_zip(zip_path, uploaded_by, bot):
+    archive_result = archive_old_tickets()
+    if archive_result:
+        bot.send_message(
+            uploaded_by,
+            f"📦 Старые билеты были перемещены в архив:\n<code>{archive_result}</code>",
+            parse_mode="HTML"
+        )
+        logger.info(f"Архив старых билетов создан: {archive_result}")
+    if archive_result:
+        print(f"🎒 Сохранён архив старых билетов: {archive_result}")
+
+    added, duplicates, not_pdf = [], [], []
+    with ZipFile(zip_path, 'r') as zip_ref:
+        for file_info in zip_ref.infolist():
+            original_name = file_info.filename
+            if not original_name.lower().endswith(".pdf"):
+                not_pdf.append(original_name)
+                continue
+            content = zip_ref.read(file_info)
+            file_hash = hashlib.sha256(content).hexdigest()
+            if is_duplicate_hash(file_hash):
+                duplicates.append(original_name)
+                continue
+            uuid_name = str(uuid4()) + ".pdf"
+            full_path = os.path.join(DEFAULT_TICKET_FOLDER, uuid_name)
+            with open(full_path, "wb") as f:
+                f.write(content)
+            insert_ticket(full_path, file_hash, original_name, uploaded_by)
+            added.append((original_name, uuid_name))
+
+    report_lines = ["=== Отчёт по загрузке билетов ===", f"Добавлено новых файлов: {len(added)}", f"Пропущено дубликатов: {len(duplicates)}", f"Пропущено не PDF: {len(not_pdf)}", ""]
+    if added:
+        report_lines.append("✅ Добавлены:")
+        report_lines.extend([f"- {orig} → {new}" for orig, new in added])
+    if duplicates:
+        report_lines.append("\n♻️ Дубликаты:")
+        report_lines.extend([f"- {name}" for name in duplicates])
+    if not_pdf:
+        report_lines.append("\n❌ Не PDF:")
+        report_lines.extend([f"- {name}" for name in not_pdf])
+
+    report_text = "\n".join(report_lines)
+    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt', encoding='utf-8') as temp_file:
+        temp_file.write(report_text)
+        return temp_file.name
+
+upload_waiting = {}
+
