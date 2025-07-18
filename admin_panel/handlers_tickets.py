@@ -5,7 +5,8 @@ import shutil
 import hashlib
 from uuid import uuid4
 from datetime import datetime
-
+from database import mark_ticket_archived_unused
+from .utils import admin_error_catcher, load_admins
 from config import DEFAULT_TICKET_FOLDER
 from .utils import admin_error_catcher, load_admins, upload_waiting, logger
 from database import (
@@ -77,80 +78,138 @@ def register_tickets_handlers(bot):
             try:
                 file_info = bot.get_file(doc.file_id)
                 downloaded = bot.download_file(file_info.file_path)
+
                 zip_path = f"temp_upload_{user_id}.zip"
                 with open(zip_path, 'wb') as f:
                     f.write(downloaded)
+
                 report_path = process_zip(zip_path, uploaded_by=user_id, bot=bot)
-                with open(report_path, 'rb') as rep:
-                    bot.send_document(message.chat.id, rep, caption="📄 Отчёт о загрузке билетов")
-                os.remove(report_path)
+                if report_path:
+                    with open(report_path, 'rb') as rep:
+                        bot.send_document(message.chat.id, rep, caption="📄 Отчёт о загрузке билетов")
+                    os.remove(report_path)
                 os.remove(zip_path)
+
             except Exception as e:
                 bot.send_message(message.chat.id, "Ошибка при загрузке архива.")
                 logger.error(f"Ошибка при обработке архива: {e}", exc_info=True)
+
             upload_waiting[user_id] = False
 
 # ==== Вспомогательные функции, используются только внутри tickets ====
 
 def archive_old_tickets():
-    pdf_files = [f for f in os.listdir(DEFAULT_TICKET_FOLDER) if f.lower().endswith('.pdf')]
+    # 1) Находим все PDF в папке
+    pdf_files = [
+        f for f in os.listdir(DEFAULT_TICKET_FOLDER)
+        if f.lower().endswith('.pdf')
+    ]
     if not pdf_files:
-        return None  # Нечего архивировать
+        return None  # нечего архивировать
 
-    now = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    temp_folder = os.path.join("archive", f"_temp_{now}")
-    zip_path = os.path.join("archive", f"{now}.zip")
+    # 2) Формируем уникальное имя с микросекундами
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
+    archive_dir = "archive"
+    temp_folder = os.path.join(archive_dir, f"_temp_{now}")
+    zip_name = f"{now}.zip"
+    zip_path = os.path.join(archive_dir, zip_name)
 
     os.makedirs(temp_folder, exist_ok=True)
+    os.makedirs(archive_dir, exist_ok=True)
 
-    # Перемещаем PDF-файлы во временную папку
+    # 3) Перемещаем PDF во временную папку
     for file_name in pdf_files:
         src = os.path.join(DEFAULT_TICKET_FOLDER, file_name)
         dst = os.path.join(temp_folder, file_name)
+        # --- вот здесь!
+        mark_ticket_archived_unused(src)
         os.rename(src, dst)
 
-    # Упаковываем во .zip
+    # 4) Запаковываем в новый ZIP
     with ZipFile(zip_path, 'w') as zipf:
         for file_name in os.listdir(temp_folder):
-            file_path = os.path.join(temp_folder, file_name)
-            zipf.write(file_path, arcname=file_name)
+            zipf.write(os.path.join(temp_folder, file_name), arcname=file_name)
 
-    # Удаляем временную папку
+    # 5) Удаляем временную папку
     shutil.rmtree(temp_folder)
+
+    # 6) RETENTION — оставляем только 3 последних архива
+    max_archives = 3
+    archives = sorted(
+        f for f in os.listdir(archive_dir)
+        if f.lower().endswith('.zip')
+    )
+    if len(archives) > max_archives:
+        for old in archives[:-max_archives]:
+            try:
+                os.remove(os.path.join(archive_dir, old))
+            except OSError:
+                pass
 
     return zip_path
 
 def process_zip(zip_path, uploaded_by, bot):
-    archive_result = archive_old_tickets()
-    if archive_result:
-        bot.send_message(
-            uploaded_by,
-            f"📦 Старые билеты были перемещены в архив:\n<code>{archive_result}</code>",
-            parse_mode="HTML"
-        )
-        logger.info(f"Архив старых билетов создан: {archive_result}")
-    if archive_result:
-        print(f"🎒 Сохранён архив старых билетов: {archive_result}")
-
     added, duplicates, not_pdf = [], [], []
+    seen_hashes = set()  # для уникальности внутри одного архива
+    temp_store = []
+
+    # 1) Сканируем архив, собираем только новые и уникальные файлы
     with ZipFile(zip_path, 'r') as zip_ref:
         for file_info in zip_ref.infolist():
             original_name = file_info.filename
             if not original_name.lower().endswith(".pdf"):
                 not_pdf.append(original_name)
                 continue
+
             content = zip_ref.read(file_info)
             file_hash = hashlib.sha256(content).hexdigest()
+
+            # пропускаем, если в базе уже есть
             if is_duplicate_hash(file_hash):
                 duplicates.append(original_name)
                 continue
-            uuid_name = str(uuid4()) + ".pdf"
+
+            # пропускаем, если уже встретили такой же файл в этом же архиве
+            if file_hash in seen_hashes:
+                duplicates.append(original_name)
+                continue
+
+            seen_hashes.add(file_hash)
+            uuid_name = f"{uuid4()}.pdf"
             full_path = os.path.join(DEFAULT_TICKET_FOLDER, uuid_name)
+            temp_store.append((content, file_hash, original_name, full_path, uuid_name))
+
+    # 2) Если нет новых PDF — отменяем весь процесс
+    if not temp_store:
+        bot.send_message(
+            uploaded_by,
+            "⛔️ В архиве нет новых PDF-файлов (все либо дубликаты, либо не PDF).",
+            parse_mode="HTML"
+        )
+        return None
+
+    # 3) Архивируем старые билеты (только раз, перед добавлением новых)
+    archive_result = archive_old_tickets()
+    if archive_result:
+        bot.send_message(
+            uploaded_by,
+            f"📦 Старые билеты перемещены в архив:\n<code>{archive_result}</code>",
+            parse_mode="HTML"
+        )
+        logger.info(f"Архив старых билетов создан: {archive_result}")
+
+    # 4) Сохраняем новые файлы и вносим запись в БД
+    for content, file_hash, original_name, full_path, uuid_name in temp_store:
+        try:
             with open(full_path, "wb") as f:
                 f.write(content)
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
             added.append((original_name, uuid_name))
+        except sqlite3.IntegrityError:
+            # на всякий случай — если вдруг hash успел появиться в параллельном процессе
+            duplicates.append(original_name)
 
+    # 5) Формируем и возвращаем отчёт
     report_lines = [
         "=== Отчёт по загрузке билетов ===",
         f"Добавлено новых файлов: {len(added)}",
@@ -160,13 +219,13 @@ def process_zip(zip_path, uploaded_by, bot):
     ]
     if added:
         report_lines.append("✅ Добавлены:")
-        report_lines.extend([f"- {orig} → {new}" for orig, new in added])
+        report_lines += [f"- {orig} → {new}" for orig, new in added]
     if duplicates:
         report_lines.append("\n♻️ Дубликаты:")
-        report_lines.extend([f"- {name}" for name in duplicates])
+        report_lines += [f"- {name}" for name in duplicates]
     if not_pdf:
         report_lines.append("\n❌ Не PDF:")
-        report_lines.extend([f"- {name}" for name in not_pdf])
+        report_lines += [f"- {name}" for name in not_pdf]
 
     report_text = "\n".join(report_lines)
     with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt', encoding='utf-8') as temp_file:

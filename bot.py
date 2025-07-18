@@ -1,80 +1,91 @@
 import telebot
-from config import BOT_TOKEN, DEFAULT_TICKET_FOLDER, WAVE_FILE
-from database import *
-from datetime import datetime
-from database import get_latest_wave
-import sqlite3
-
-# --- Новый импорт! ---
+from config import BOT_TOKEN
+from database import init_db, add_user
 from admin_panel import register_admin_handlers
+import sqlite3
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Регистрируем все админские хендлеры (сразу после создания бота)
+# Регистрируем админские хендлеры
 register_admin_handlers(bot)
 
+# Инициализируем БД
 init_db()
-#sync_ticket_folder(DEFAULT_TICKET_FOLDER)
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     args = message.text.split()
-    invite_code = None
-    if len(args) > 1 and args[1].startswith("inv_"):
-        invite_code = args[1]
-    else:
-        bot.send_message(message.chat.id, "Для доступа к билетам используйте вашу персональную ссылку.")
-        return
+    user_id = message.from_user.id
 
-    # Проверяем invite-код в базе
+    # 1) Без INVITE_CODE или неправильный формат
+    if len(args) < 2 or not args[1].startswith("inv_"):
+        bot.send_message(
+            message.chat.id,
+            "ВЫ ПЫТАЕТЕСЬ НАЧАТЬ ОБЩЕНИЕ С БОТОМ БЕЗ ПРИГЛАШЕНИЯ. ДЛЯ ПОЛУЧЕНИЯ ПРИГЛАШЕНИЯ СВЯЖИТЕСЬ С АДМИНИСТРАТОРОМ."
+        )
+        return
+    invite_code = args[1]
+
     conn = sqlite3.connect("users.db")
     cur = conn.cursor()
+
+    # 2) Проверка, подписан ли уже пользователь
+    cur.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    if cur.fetchone():
+        # Пользователь пытается активировать второй код: "сжечь" invite и уведомить админов
+        cur.execute(
+            "UPDATE invite_codes SET is_used = 1 WHERE invite_code = ?",
+            (invite_code,)
+        )
+        conn.commit()
+        conn.close()
+        # Уведомляем админов
+        # for admin_id in ADMIN_IDS:
+        #     bot.send_message(
+        #         admin_id,
+        #         f"⚠️ Пользователь {user_id} попытался активировать второй инвайт-код {invite_code}. Код заблокирован."
+        #     )
+        bot.send_message(
+            message.chat.id,
+            "ВЫ УЖЕ ПОДПИСАНЫ НА РАССЫЛКУ. ВАШ ДЕЙСТВИЕ ЗАБЛОКИРОВАНО И АДМИНЫ УВЕДОМЛЕНЫ."
+        )
+        return
+
+    # 3) Проверка invite-кода в базе
     cur.execute("SELECT is_used FROM invite_codes WHERE invite_code = ?", (invite_code,))
     row = cur.fetchone()
     if not row:
-        bot.send_message(message.chat.id, "❗️ Такой приглашение не найдено.")
         conn.close()
+        bot.send_message(
+            message.chat.id,
+            "❗️ ПРИГЛАШЕНИЕ НЕ НАЙДЕНО. СВЯЖИТЕСЬ С АДМИНИСТРАТОРОМ."
+        )
         return
-
     if row[0] == 1:
-        bot.send_message(message.chat.id, "⛔️ Это приглашение уже использовано.")
         conn.close()
+        bot.send_message(
+            message.chat.id,
+            "⛔️ ЭТА ССЫЛКА УЖЕ ИСПОЛЬЗОВАНА. ПОЖАЛУЙСТА, СВЯЖИТЕСЬ С АДМИНИСТРАТОРОМ."
+        )
         return
 
-    # Помечаем invite как использованный, сохраняем user_id, username
-    cur.execute("UPDATE invite_codes SET is_used = 1, user_id = ?, username = ? WHERE invite_code = ?",
-                (message.from_user.id, message.from_user.username, invite_code))
+    # 4) Активируем invite и регистрируем пользователя
+    cur.execute(
+        "UPDATE invite_codes SET is_used = 1, user_id = ?, username = ? WHERE invite_code = ?",
+        (user_id, message.from_user.username, invite_code)
+    )
     conn.commit()
     conn.close()
 
-    # Здесь обычная логика выдачи билета:
-    user_id = message.from_user.id
-    username = message.from_user.username
+    add_user(user_id, message.from_user.username)
 
-    add_user(user_id, username)
-    last_ticket_time = get_user_last_ticket_time(user_id)
-    wave_start = get_latest_wave()
-    if not wave_start:
-        bot.send_message(user_id, "Волна ещё не началась. Попроси админа запустить /new_wave.")
-        return
+    # 5) Приветственное сообщение
+    bot.send_message(
+        message.chat.id,
+        f"ПРИВЕТ, {message.from_user.first_name}! СПАСИБО, ЧТО ПОДПИСАЛИСЬ НА РАССЫЛКУ БИЛЕТОВ. "
+        "СКОРО ВЫ ПОЛУЧИТЕ ИНФОРМАЦИЮ О ДОСТУПНЫХ МАТЧАХ."
+    )
 
-    if last_ticket_time and last_ticket_time >= wave_start:
-        bot.send_message(user_id, "Вы уже получили билет в этой волне.")
-        return
-
-    ticket_path = get_free_ticket()
-    if not ticket_path:
-        bot.send_message(user_id, "Билеты закончились.")
-        return
-
-    try:
-        with open(ticket_path, 'rb') as pdf:
-            bot.send_document(user_id, pdf)
-        assign_ticket(ticket_path, user_id)
-        bot.send_message(user_id, "Ваш билет отправлен. Удачного просмотра!")
-    except Exception as e:
-        bot.send_message(user_id, "Ошибка при отправке билета.")
-        print(f"Ошибка: {e}")
-
+# Запуск бота
 print("Бот запущен.")
 bot.infinity_polling()

@@ -1,5 +1,5 @@
 from .utils import admin_error_catcher, load_admins, awaiting_invite_count
-from invite_admin import generate_invites, export_invites_xlsx
+from admin_panel.invite_admin import generate_invites, export_invites_xlsx
 
 def register_invites_handlers(bot):
     @bot.message_handler(commands=['gen_invites'])

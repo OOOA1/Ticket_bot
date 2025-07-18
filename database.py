@@ -6,11 +6,57 @@ import os
 
 DB_PATH = "users.db"
 
+def init_failed_deliveries_table():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS failed_deliveries (
+        user_id INTEGER PRIMARY KEY,
+        ticket_path TEXT NOT NULL
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+def add_failed_delivery(user_id, ticket_path):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT OR REPLACE INTO failed_deliveries (user_id, ticket_path)
+        VALUES (?, ?)
+    """, (user_id, ticket_path))
+    conn.commit()
+    conn.close()
+
+def remove_failed_delivery(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM failed_deliveries WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_failed_deliveries():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, ticket_path FROM failed_deliveries")
+    rows = cur.fetchall()
+    conn.close()
+    return rows  # [(user_id, ticket_path), ...]
+
+def clear_failed_deliveries():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM failed_deliveries")
+    conn.commit()
+    conn.close()
+
 def init_db():
     init_user_table()
     init_ticket_table()
     init_wave_table()
     init_wave_confirmation_table()
+    init_failed_deliveries_table()
+
 
 # === USERS ===
 def init_user_table():
@@ -78,7 +124,8 @@ def init_ticket_table():
         uploaded_by INTEGER,
         uploaded_at TEXT,
         assigned_to INTEGER,
-        assigned_at TEXT
+        assigned_at TEXT,
+        archived_unused INTEGER DEFAULT 0
     )
     """)
     conn.commit()
@@ -106,7 +153,7 @@ def is_duplicate_hash(file_hash):
 def get_free_ticket():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL LIMIT 1")
+    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND (archived_unused IS NULL OR archived_unused=0) LIMIT 1")
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
@@ -119,6 +166,22 @@ def assign_ticket(file_path, user_id):
     conn.commit()
     conn.close()
     update_user_ticket_time(user_id, now)
+
+def reserve_ticket_for_user(file_path, user_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE tickets SET assigned_to=?, assigned_at=NULL WHERE file_path=?", (user_id, file_path))
+    conn.commit()
+    conn.close()
+
+def mark_ticket_archived_unused(file_path):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE tickets SET archived_unused=1 WHERE file_path=? AND assigned_to IS NULL", (file_path,))
+    conn.commit()
+    conn.close()
+
+
 
 # === WAVES ===
 def init_wave_table():
@@ -213,6 +276,14 @@ def get_free_ticket_count():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM tickets WHERE assigned_to IS NULL")
+    count = cur.fetchone()[0]
+    conn.close()
+    return count
+
+def get_wave_count():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM waves")
     count = cur.fetchone()[0]
     conn.close()
     return count
