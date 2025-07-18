@@ -98,30 +98,50 @@ def register_tickets_handlers(bot):
 # ==== Вспомогательные функции, используются только внутри tickets ====
 
 def archive_old_tickets():
-    pdf_files = [f for f in os.listdir(DEFAULT_TICKET_FOLDER) if f.lower().endswith('.pdf')]
+    # 1) Находим все PDF в папке
+    pdf_files = [
+        f for f in os.listdir(DEFAULT_TICKET_FOLDER)
+        if f.lower().endswith('.pdf')
+    ]
     if not pdf_files:
-        return None  # Нечего архивировать
+        return None  # нечего архивировать
 
-    now = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    temp_folder = os.path.join("archive", f"_temp_{now}")
-    zip_path = os.path.join("archive", f"{now}.zip")
+    # 2) Формируем уникальное имя с микросекундами
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
+    archive_dir = "archive"
+    temp_folder = os.path.join(archive_dir, f"_temp_{now}")
+    zip_name = f"{now}.zip"
+    zip_path = os.path.join(archive_dir, zip_name)
 
     os.makedirs(temp_folder, exist_ok=True)
+    os.makedirs(archive_dir, exist_ok=True)
 
-    # Перемещаем PDF-файлы во временную папку
+    # 3) Перемещаем PDF во временную папку
     for file_name in pdf_files:
         src = os.path.join(DEFAULT_TICKET_FOLDER, file_name)
         dst = os.path.join(temp_folder, file_name)
         os.rename(src, dst)
 
-    # Упаковываем во .zip
+    # 4) Запаковываем в новый ZIP
     with ZipFile(zip_path, 'w') as zipf:
         for file_name in os.listdir(temp_folder):
-            file_path = os.path.join(temp_folder, file_name)
-            zipf.write(file_path, arcname=file_name)
+            zipf.write(os.path.join(temp_folder, file_name), arcname=file_name)
 
-    # Удаляем временную папку
+    # 5) Удаляем временную папку
     shutil.rmtree(temp_folder)
+
+    # 6) RETENTION — оставляем только 3 последних архива
+    max_archives = 3
+    archives = sorted(
+        f for f in os.listdir(archive_dir)
+        if f.lower().endswith('.zip')
+    )
+    if len(archives) > max_archives:
+        for old in archives[:-max_archives]:
+            try:
+                os.remove(os.path.join(archive_dir, old))
+            except OSError:
+                pass
 
     return zip_path
 

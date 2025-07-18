@@ -1,5 +1,5 @@
 import telebot
-from config import BOT_TOKEN, DEFAULT_TICKET_FOLDER, WAVE_FILE
+from config import BOT_TOKEN, DEFAULT_TICKET_FOLDER
 from database import *
 from datetime import datetime
 from database import get_latest_wave

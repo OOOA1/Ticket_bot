@@ -216,3 +216,11 @@ def get_free_ticket_count():
     count = cur.fetchone()[0]
     conn.close()
     return count
+
+def get_wave_count():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM waves")
+    count = cur.fetchone()[0]
+    conn.close()
+    return count

@@ -1,9 +1,16 @@
 from datetime import datetime
+from .utils import admin_error_catcher, load_admins
 from telebot import types
-
-from config import WAVE_FILE, DEFAULT_TICKET_FOLDER
 from database import get_wave_stats, create_new_wave, get_free_ticket_count
 from .utils import admin_error_catcher, load_admins
+
+from database import (
+    get_wave_stats,
+    create_new_wave,
+    get_free_ticket_count,
+    get_latest_wave,
+    get_wave_count,
+)
 
 def register_wave_handlers(bot):
     @bot.message_handler(commands=['new_wave'])
@@ -13,13 +20,16 @@ def register_wave_handlers(bot):
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "У вас нет прав запускать новую волну.")
             return
+
         if get_free_ticket_count() == 0:
-            bot.send_message(message.chat.id, "🚫 Нельзя начать волну — нет доступных билетов. Сначала загрузите билеты через /upload_zip.")
+            bot.send_message(
+                message.chat.id,
+                "🚫 Нельзя начать волну — нет доступных билетов. Сначала загрузите билеты через /upload_zip."
+            )
             return
 
+        # создаём запись в БД и получаем время старта
         now = create_new_wave(message.from_user.id)
-        with open(WAVE_FILE, "w") as f:
-            f.write(now)
         bot.send_message(message.chat.id, f"Новая волна началась! Время: {now}")
 
     @bot.message_handler(commands=['stats'])
@@ -30,23 +40,14 @@ def register_wave_handlers(bot):
             bot.reply_to(message, "Нет прав для этой команды.")
             return
 
-        # Проверка на существование файла
-        import os
-        if not os.path.exists(WAVE_FILE):
+        # читаем время старта из БД
+        wave_start = get_latest_wave()
+        if not wave_start:
             bot.send_message(message.chat.id, "Волна ещё не начиналась.")
             return
 
-        with open(WAVE_FILE, "r") as f:
-            wave_start = datetime.fromisoformat(f.read().strip())
-
         users_with_ticket, free_tickets, all_users = get_wave_stats(wave_start)
-
-        # Подсчёт числа волн
-        if os.path.exists("waves.txt"):
-            with open("waves.txt", "r") as wf:
-                total_waves = len([line for line in wf if line.strip()])
-        else:
-            total_waves = 1
+        total_waves = get_wave_count()
 
         text = (
             f"📊 Статистика по текущей волне:\n"
