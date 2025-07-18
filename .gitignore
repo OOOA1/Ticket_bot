@@ -11,7 +11,7 @@ users.db
 # Лог или временные файлы
 *.log
 temp_*.zip
-
+*.zip
 # Секреты (если появятся)
 config.py
 
@@ -19,3 +19,5 @@ config.py
 *.jpg
 *.png
 tickets/*.pdf
+admins.txt
+*.xlsx
