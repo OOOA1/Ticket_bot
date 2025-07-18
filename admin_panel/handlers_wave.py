@@ -1,4 +1,5 @@
 from datetime import datetime
+from .utils import admin_error_catcher, load_admins
 from telebot import types
 
 from config import WAVE_FILE, DEFAULT_TICKET_FOLDER
@@ -13,6 +14,14 @@ from database import (
 )
 from .utils import admin_error_catcher, load_admins
 from .handlers_mass_send import register_mass_send_handler
+
+from database import (
+    get_wave_stats,
+    create_new_wave,
+    get_free_ticket_count,
+    get_latest_wave,
+    get_wave_count,
+)
 
 def register_wave_handlers(bot):
     send_mass_send_keyboard = register_mass_send_handler(bot)
@@ -32,6 +41,7 @@ def register_wave_handlers(bot):
             )
             return
 
+        # создаём запись в БД и получаем время старта
         now = create_new_wave(message.from_user.id)
         with open(WAVE_FILE, "w") as f:
             f.write(now)
@@ -52,17 +62,8 @@ def register_wave_handlers(bot):
             bot.send_message(message.chat.id, "Волна ещё не начиналась.")
             return
 
-        with open(WAVE_FILE, "r") as f:
-            wave_start = datetime.fromisoformat(f.read().strip())
-
         users_with_ticket, free_tickets, all_users = get_wave_stats(wave_start)
-
-        # Подсчёт числа волн
-        if os.path.exists("waves.txt"):
-            with open("waves.txt", "r") as wf:
-                total_waves = len([line for line in wf if line.strip()])
-        else:
-            total_waves = 1
+        total_waves = get_wave_count()
 
         pending = len(get_all_failed_deliveries())   # <<< число ожидающих доставки
 
