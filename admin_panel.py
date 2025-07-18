@@ -139,7 +139,6 @@ def register_admin_handlers(bot):
             if not doc.file_name.endswith('.zip'):
                 bot.reply_to(message, "Пожалуйста, пришли .zip архив.")
                 return
-
             try:
                 file_info = bot.get_file(doc.file_id)
                 downloaded = bot.download_file(file_info.file_path)
@@ -155,6 +154,7 @@ def register_admin_handlers(bot):
                 bot.send_message(message.chat.id, "Ошибка при загрузке архива.")
                 logger.error(f"Ошибка при обработке архива: {e}", exc_info=True)
             upload_waiting[user_id] = False
+
 
     @bot.message_handler(commands=['myid'])
     @admin_error_catcher(bot)

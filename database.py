@@ -23,7 +23,6 @@ def init_user_table():
         last_ticket_at TEXT
     )
     """)
-
     conn.commit()
     conn.close()
 
