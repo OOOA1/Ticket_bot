@@ -4,7 +4,9 @@ from uuid import uuid4
 import hashlib
 import os
 
+
 DB_PATH = "users.db"
+FOUNDER_IDS = [5477727657]
 
 def init_failed_deliveries_table():
     conn = sqlite3.connect(DB_PATH)
@@ -56,6 +58,10 @@ def init_db():
     init_wave_table()
     init_wave_confirmation_table()
     init_failed_deliveries_table()
+    init_admins_table()
+
+    for founder in FOUNDER_IDS:
+        add_admin(founder)
 
 
 # === USERS ===
@@ -287,3 +293,42 @@ def get_wave_count():
     count = cur.fetchone()[0]
     conn.close()
     return count
+
+# АДМИНЫ
+
+def init_admins_table():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS admins (
+            user_id    INTEGER PRIMARY KEY,
+            added_at   TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def add_admin(user_id: int):
+    """Добавить user_id в таблицу admins (игнорировать, если уже есть)."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+    conn.close()
+
+def remove_admin(user_id: int):
+    """Удалить user_id из таблицы admins."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_admins() -> list[int]:
+    """Вернуть список всех user_id из таблицы admins."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM admins")
+    admins = [row[0] for row in cur.fetchall()]
+    conn.close()
+    return admins
