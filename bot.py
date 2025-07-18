@@ -5,9 +5,13 @@ from datetime import datetime
 from database import get_latest_wave
 import sqlite3
 
+# --- Новый импорт! ---
+from admin_panel import register_admin_handlers
+
 bot = telebot.TeleBot(BOT_TOKEN)
-import admin_panel
-admin_panel.register_admin_handlers(bot)
+
+# Регистрируем все админские хендлеры (сразу после создания бота)
+register_admin_handlers(bot)
 
 init_db()
 #sync_ticket_folder(DEFAULT_TICKET_FOLDER)
