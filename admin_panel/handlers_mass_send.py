@@ -10,6 +10,7 @@ from database import (
     reserve_ticket_for_user,
     add_failed_delivery,
     remove_failed_delivery,
+     get_admins,
     get_all_failed_deliveries,
     clear_failed_deliveries,
 )
@@ -39,7 +40,10 @@ def register_mass_send_handler(bot):
             logger.warning(f"User {message.from_user.id} попытался разослать билеты без прав.")
             return
 
-        user_ids = get_all_user_ids()
+        # Берём всех пользователей и исключаем админов
+        all_users = get_all_user_ids()
+        admins    = set(get_admins())
+        user_ids  = [uid for uid in all_users if uid not in admins]
         wave_start = get_latest_wave()
         if not wave_start:
             bot.reply_to(message, "Волна ещё не началась.")

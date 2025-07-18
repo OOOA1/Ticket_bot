@@ -1,3 +1,5 @@
+import os
+
 from datetime import datetime
 from .utils import admin_error_catcher, load_admins
 from telebot import types
@@ -57,11 +59,13 @@ def register_wave_handlers(bot):
             bot.reply_to(message, "Нет прав для этой команды.")
             return
 
-        import os
-        if not os.path.exists(WAVE_FILE):
+        
+        wave_start = get_latest_wave()
+        if not wave_start:
             bot.send_message(message.chat.id, "Волна ещё не начиналась.")
             return
 
+        # теперь передаём в get_wave_stats актуальный datetime
         users_with_ticket, free_tickets, all_users = get_wave_stats(wave_start)
         total_waves = get_wave_count()
 
