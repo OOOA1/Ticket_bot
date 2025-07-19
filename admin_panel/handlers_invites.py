@@ -35,9 +35,9 @@ def register_invites_handlers(bot):
         codes = generate_invites(count)
         temp_path = export_invites_xlsx(codes)
 
+        # Отправляем файл инициатору
         with open(temp_path, "rb") as doc:
             bot.send_document(message.chat.id, doc, caption=f"Готово! {count} инвайтов сгенерировано.")
-
         os.remove(temp_path)
 
         # Уведомляем остальных админов

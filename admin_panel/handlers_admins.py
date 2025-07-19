@@ -38,7 +38,6 @@ def register_admins_handlers(bot):
             f"✅ Пользователь @{username} (ID {user_id}) добавлен в админы."
         )
 
-
     @bot.message_handler(commands=['remove_admin'])
     @admin_error_catcher(bot)
     def handle_remove_admin(message):
