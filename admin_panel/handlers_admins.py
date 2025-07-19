@@ -1,68 +1,80 @@
-from .utils import admin_error_catcher, load_admins, save_admins, FOUNDER_IDS
-from database import get_user_id_by_username
+from telebot import types
+from .utils import admin_error_catcher     # теперь обёртка ошибок берётся из utils
+from database import (
+    add_admin,
+    remove_admin,
+    get_admins,
+    get_user_id_by_username,
+    FOUNDER_IDS
+)
 
 def register_admins_handlers(bot):
     @bot.message_handler(commands=['add_admin'])
     @admin_error_catcher(bot)
     def handle_add_admin(message):
-        ADMINS = load_admins()
+        ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "Нет прав для этой команды.")
+            bot.reply_to(message, "❌ Нет прав для этой команды.")
             return
 
-        args = message.text.strip().split()
-        if len(args) < 2 or not args[1].startswith("@"):
-            bot.reply_to(message, "Используй так: /add_admin @username")
+        parts = message.text.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].startswith('@'):
+            bot.reply_to(message, "Использование: /add_admin @username")
             return
 
-        username = args[1][1:]
+        username = parts[1][1:]
         user_id = get_user_id_by_username(username)
         if not user_id:
-            bot.reply_to(message, f"Пользователь @{username} не найден в базе.")
+            bot.reply_to(message, f"❌ Пользователь @{username} не найден.")
             return
 
         if user_id in ADMINS:
-            bot.reply_to(message, f"Пользователь @{username} уже админ.")
+            bot.reply_to(message, f"❌ Пользователь @{username} уже является админом.")
             return
 
-        ADMINS.append(user_id)
-        save_admins(ADMINS)
-        bot.reply_to(message, f"Пользователь @{username} (id {user_id}) теперь администратор.")
+        add_admin(user_id)
+        bot.reply_to(
+            message,
+            f"✅ Пользователь @{username} (ID {user_id}) добавлен в админы."
+        )
+
 
     @bot.message_handler(commands=['remove_admin'])
     @admin_error_catcher(bot)
     def handle_remove_admin(message):
-        ADMINS = load_admins()
+        ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "Нет прав для этой команды.")
+            bot.reply_to(message, "❌ Нет прав для этой команды.")
             return
 
-        args = message.text.strip().split()
-        if len(args) < 2 or not args[1].startswith("@"):
-            bot.reply_to(message, "Используй так: /remove_admin @username")
+        parts = message.text.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].startswith('@'):
+            bot.reply_to(message, "Использование: /remove_admin @username")
             return
 
-        username = args[1][1:]
+        username = parts[1][1:]
         user_id = get_user_id_by_username(username)
         if not user_id:
-            bot.reply_to(message, f"Пользователь @{username} не найден в базе.")
+            bot.reply_to(message, f"❌ Пользователь @{username} не найден.")
             return
 
         if user_id not in ADMINS:
-            bot.reply_to(message, f"Пользователь @{username} не был админом.")
+            bot.reply_to(message, f"❌ Пользователь @{username} не является админом.")
             return
 
         if user_id in FOUNDER_IDS:
-            bot.reply_to(message, "Этого админа нельзя удалить, он основатель!")
+            bot.reply_to(message, "❌ Нельзя удалить основателя из админов.")
             return
 
         if user_id == message.from_user.id:
-            bot.reply_to(message, "Нельзя удалить самого себя через эту команду.")
+            bot.reply_to(message, "❌ Нельзя удалить самого себя.")
             return
 
-        ADMINS.remove(user_id)
-        save_admins(ADMINS)
-        bot.reply_to(message, f"Пользователь @{username} (id {user_id}) больше не админ.")
+        remove_admin(user_id)
+        bot.reply_to(
+            message,
+            f"✅ Пользователь @{username} (ID {user_id}) удалён из админов."
+        )
 
     @bot.message_handler(commands=['myid'])
     @admin_error_catcher(bot)

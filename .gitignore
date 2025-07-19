@@ -21,3 +21,4 @@ config.py
 tickets/*.pdf
 admins.txt
 *.xlsx
+*.pdf

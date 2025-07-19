@@ -1,8 +1,7 @@
 import os
 import logging
+from database import get_admins
 
-ADMINS_FILE = "admins.txt"
-FOUNDER_IDS = [781477708, 5477727657]
 LOG_FILE = "bot_errors.log"
 
 # Состояния для загрузки и генерации инвайтов
@@ -20,18 +19,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("admin_panel")
 
-def load_admins():
-    if not os.path.exists(ADMINS_FILE):
-        # Если файла нет — создаём пустой файл
-        with open(ADMINS_FILE, "w") as f:
-            pass
-    with open(ADMINS_FILE, "r") as f:
-        return [int(line.strip()) for line in f if line.strip().isdigit()]
-
-def save_admins(admin_list):
-    with open(ADMINS_FILE, "w") as f:
-        for admin_id in admin_list:
-            f.write(str(admin_id) + "\n")
+def load_admins() -> list[int]:
+    """Возвращает список ID админов из БД."""
+    return get_admins()
 
 def admin_error_catcher(bot):
     """

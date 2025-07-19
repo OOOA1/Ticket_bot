@@ -69,7 +69,8 @@ def register_tickets_handlers(bot):
     def handle_document(message):
         ADMINS = load_admins()
         user_id = message.from_user.id
-        if user_id in ADMINS and upload_waiting.get(user_id):
+        mode = upload_waiting.get(user_id)
+        if user_id in ADMINS and mode:
             doc = message.document
             if not doc.file_name.endswith('.zip'):
                 bot.reply_to(message, "Пожалуйста, пришли .zip архив.")
@@ -83,18 +84,37 @@ def register_tickets_handlers(bot):
                 with open(zip_path, 'wb') as f:
                     f.write(downloaded)
 
-                report_path = process_zip(zip_path, uploaded_by=user_id, bot=bot)
+                if mode == True:
+                    # СТАРАЯ ЛОГИКА — архивировать старые, добавить новые
+                    report_path = process_zip(zip_path, uploaded_by=user_id, bot=bot)
+                elif mode == 'add':
+                    # ДОЗАГРУЗКА: только добавить новые файлы, ничего не архивировать
+                    report_path = process_zip_add(zip_path, uploaded_by=user_id, bot=bot)
+                else:
+                    report_path = None
+
                 if report_path:
                     with open(report_path, 'rb') as rep:
                         bot.send_document(message.chat.id, rep, caption="📄 Отчёт о загрузке билетов")
                     os.remove(report_path)
                 os.remove(zip_path)
-
             except Exception as e:
                 bot.send_message(message.chat.id, "Ошибка при загрузке архива.")
                 logger.error(f"Ошибка при обработке архива: {e}", exc_info=True)
 
             upload_waiting[user_id] = False
+
+    
+    @bot.message_handler(commands=['upload_zip_add'])
+    @admin_error_catcher(bot)
+    def start_upload_add(message):
+        ADMINS = load_admins()
+        if message.from_user.id not in ADMINS:
+            return
+        upload_waiting[message.from_user.id] = 'add'
+        bot.send_message(message.chat.id, "Пришли ZIP-файл для ДОЗАГРУЗКИ билетов (старые останутся).")
+
+
 
 # ==== Вспомогательные функции, используются только внутри tickets ====
 
@@ -212,6 +232,57 @@ def process_zip(zip_path, uploaded_by, bot):
     # 5) Формируем и возвращаем отчёт
     report_lines = [
         "=== Отчёт по загрузке билетов ===",
+        f"Добавлено новых файлов: {len(added)}",
+        f"Пропущено дубликатов: {len(duplicates)}",
+        f"Пропущено не PDF: {len(not_pdf)}",
+        ""
+    ]
+    if added:
+        report_lines.append("✅ Добавлены:")
+        report_lines += [f"- {orig} → {new}" for orig, new in added]
+    if duplicates:
+        report_lines.append("\n♻️ Дубликаты:")
+        report_lines += [f"- {name}" for name in duplicates]
+    if not_pdf:
+        report_lines.append("\n❌ Не PDF:")
+        report_lines += [f"- {name}" for name in not_pdf]
+
+    report_text = "\n".join(report_lines)
+    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt', encoding='utf-8') as temp_file:
+        temp_file.write(report_text)
+        return temp_file.name
+    
+
+def process_zip_add(zip_path, uploaded_by, bot):
+    added, duplicates, not_pdf = [], [], []
+    seen_hashes = set()
+
+    from database import is_duplicate_hash, insert_ticket
+
+    with ZipFile(zip_path, 'r') as zip_ref:
+        for file_info in zip_ref.infolist():
+            original_name = file_info.filename
+            if not original_name.lower().endswith(".pdf"):
+                not_pdf.append(original_name)
+                continue
+            content = zip_ref.read(file_info)
+            file_hash = hashlib.sha256(content).hexdigest()
+            if is_duplicate_hash(file_hash):
+                duplicates.append(original_name)
+                continue
+            if file_hash in seen_hashes:
+                duplicates.append(original_name)
+                continue
+            seen_hashes.add(file_hash)
+            uuid_name = f"{uuid4()}.pdf"
+            full_path = os.path.join(DEFAULT_TICKET_FOLDER, uuid_name)
+            with open(full_path, "wb") as f:
+                f.write(content)
+            insert_ticket(full_path, file_hash, original_name, uploaded_by)
+            added.append((original_name, uuid_name))
+
+    report_lines = [
+        "=== Отчёт по ДОЗАГРУЗКЕ билетов ===",
         f"Добавлено новых файлов: {len(added)}",
         f"Пропущено дубликатов: {len(duplicates)}",
         f"Пропущено не PDF: {len(not_pdf)}",

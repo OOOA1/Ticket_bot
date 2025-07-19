@@ -1,6 +1,6 @@
 import telebot
 from config import BOT_TOKEN
-from database import init_db, add_user
+from database import init_db, add_user, get_admins
 from admin_panel import register_admin_handlers
 import sqlite3
 
@@ -39,15 +39,21 @@ def handle_start(message):
         )
         conn.commit()
         conn.close()
-        # Уведомляем админов
-        # for admin_id in ADMIN_IDS:
-        #     bot.send_message(
-        #         admin_id,
-        #         f"⚠️ Пользователь {user_id} попытался активировать второй инвайт-код {invite_code}. Код заблокирован."
-        #     )
+    
+        # Уведомляем всех админов из БД
+        for admin_id in get_admins():
+            try:
+                bot.send_message(
+                    admin_id,
+                    f"⚠️ Пользователь {user_id} попытался активировать второй инвайт-код {invite_code}. Код заблокирован."
+                )
+            except Exception:
+                # на случай, если какой-то админ заблокировал бота
+                pass
+
         bot.send_message(
             message.chat.id,
-            "ВЫ УЖЕ ПОДПИСАНЫ НА РАССЫЛКУ. ВАШ ДЕЙСТВИЕ ЗАБЛОКИРОВАНО И АДМИНЫ УВЕДОМЛЕНЫ."
+            "ВЫ УЖЕ ПОДПИСАНЫ НА РАССЫЛКУ. ВАШЕ ДЕЙСТВИЕ ЗАБЛОКИРОВАНО И АДМИНЫ УВЕДОМЛЕНЫ."
         )
         return
 

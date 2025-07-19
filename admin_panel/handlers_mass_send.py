@@ -10,6 +10,7 @@ from database import (
     reserve_ticket_for_user,
     add_failed_delivery,
     remove_failed_delivery,
+    get_admins,
     get_all_failed_deliveries,
     clear_failed_deliveries,
 )
@@ -19,34 +20,24 @@ MASS_SEND_TEXT = "Разослать билеты"
 RETRY_SEND_TEXT = "Отправить оставшиеся билеты"
 
 def register_mass_send_handler(bot):
-    # Функция отправки клавиатуры с кнопкой рассылки
-    def send_mass_send_keyboard(chat_id):
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add(MASS_SEND_TEXT)
-        bot.send_message(chat_id, "Для старта рассылки нажмите кнопку ниже:", reply_markup=markup)
-
-    # Функция отправки клавиатуры для ретрая
-    def send_retry_keyboard(chat_id):
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add(RETRY_SEND_TEXT)
-        bot.send_message(chat_id, "Чтобы попытаться отправить билеты тем, кто их не получил, нажмите кнопку ниже:", reply_markup=markup)
-
-    @bot.message_handler(func=lambda m: m.text == MASS_SEND_TEXT)
-    def handle_mass_send(message):
+    @bot.message_handler(commands=['send_tickets'])
+    def handle_send_tickets(message):
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "Нет прав.")
             logger.warning(f"User {message.from_user.id} попытался разослать билеты без прав.")
             return
 
-        user_ids = get_all_user_ids()
+        # Берём всех пользователей и исключаем админов
+        all_users = get_all_user_ids()
+        admins    = set(get_admins())
+        user_ids  = [uid for uid in all_users if uid not in admins]
         wave_start = get_latest_wave()
         if not wave_start:
             bot.reply_to(message, "Волна ещё не началась.")
             logger.warning("Попытка рассылки билетов без начатой волны.")
             return
 
-        # Перед рассылкой очищаем старый список "ожидающих доставки"
         clear_failed_deliveries()
 
         sent_count = 0
@@ -69,7 +60,7 @@ def register_mass_send_handler(bot):
                 ticket_path = get_free_ticket()
                 if not ticket_path:
                     bot.send_message(message.chat.id, f"Билеты закончились! Рассылка завершена.\n"
-                                                      f"Успешно: {sent_count}, ошибок: {failed_count}, уже получали: {already_count}")
+                                                    f"Успешно: {sent_count}, ошибок: {failed_count}, уже получали: {already_count}")
                     logger.info(f"Рассылка завершена: билеты закончились. Успешно: {sent_count}, ошибок: {failed_count}, уже было: {already_count}")
                     break
                 reserve_ticket_for_user(ticket_path, user_id)
@@ -109,7 +100,7 @@ def register_mass_send_handler(bot):
                     failed_this_time.append(user_id)
                     continue
 
-            time.sleep(2.5)
+            time.sleep(5)
 
         total_time = int(time.time() - start_time)
         pending_after = get_all_failed_deliveries()
@@ -123,15 +114,18 @@ def register_mass_send_handler(bot):
             f"Ожидают доставки: {pending_count}\n"
             f"Время: {total_time} сек."
         )
-        bot.send_message(message.chat.id, result_msg, reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(message.chat.id, result_msg)
         logger.info(result_msg)
 
-        # Если остались те, кому не дошло — покажем кнопку для ретрая
+        # Если остались те, кому не дошло — сообщить админу
         if pending_count > 0:
-            send_retry_keyboard(message.chat.id)
+            bot.send_message(
+                message.chat.id,
+                "⚠️ Есть пользователи, которым не удалось доставить билет. Используйте /retry_send_tickets чтобы попробовать ещё раз."
+            )
 
-    @bot.message_handler(func=lambda m: m.text == RETRY_SEND_TEXT)
-    def handle_retry_send(message):
+    @bot.message_handler(commands=['retry_send_tickets'])
+    def handle_retry_send_tickets(message):
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "Нет прав.")
@@ -140,7 +134,7 @@ def register_mass_send_handler(bot):
 
         failed_deliveries = get_all_failed_deliveries()
         if not failed_deliveries:
-            bot.send_message(message.chat.id, "Нет пользователей, ожидающих получения билета.", reply_markup=types.ReplyKeyboardRemove())
+            bot.send_message(message.chat.id, "Нет пользователей, ожидающих получения билета.")
             return
 
         sent_count = 0
@@ -169,7 +163,7 @@ def register_mass_send_handler(bot):
                 logger.error(err_msg, exc_info=True)
                 continue
 
-            time.sleep(2.5)
+            time.sleep(5)
 
         total_time = int(time.time() - start_time)
         pending_after = get_all_failed_deliveries()
@@ -181,10 +175,10 @@ def register_mass_send_handler(bot):
             f"Ожидают доставки: {pending_count}\n"
             f"Время: {total_time} сек."
         )
-        bot.send_message(message.chat.id, result_msg, reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(message.chat.id, result_msg)
         logger.info(result_msg)
         if pending_count > 0:
-            send_retry_keyboard(message.chat.id)
-
-    # Возвращаем функцию для показа клавиатуры
-    return send_mass_send_keyboard
+            bot.send_message(
+                message.chat.id,
+                "⚠️ Некоторые пользователи всё ещё не получили билеты. Можно повторить /retry_send_tickets позже."
+            )
