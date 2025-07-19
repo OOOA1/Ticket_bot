@@ -5,7 +5,7 @@ import shutil
 import hashlib
 from uuid import uuid4
 from datetime import datetime
-from database import mark_ticket_archived_unused
+from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets
 from .utils import admin_error_catcher, load_admins
 from config import DEFAULT_TICKET_FOLDER
 from .utils import admin_error_catcher, load_admins, upload_waiting, logger
@@ -27,7 +27,11 @@ def register_tickets_handlers(bot):
             path = os.path.join(DEFAULT_TICKET_FOLDER, f)
             if os.path.isfile(path):
                 os.remove(path)
+                # Отметить билет как утраченный
+                mark_ticket_lost(path)
                 count += 1
+        # На всякий случай чистим и все битые билеты, если что-то осталось
+        archive_missing_tickets()
         bot.send_message(message.chat.id, f"Удалено файлов: {count}")
 
     @bot.message_handler(commands=['list_tickets'])

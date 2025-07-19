@@ -59,7 +59,6 @@ def init_db():
     init_wave_confirmation_table()
     init_failed_deliveries_table()
     init_admins_table()
-
     for founder in FOUNDER_IDS:
         add_admin(founder)
 
@@ -130,7 +129,8 @@ def init_ticket_table():
         uploaded_at TEXT,
         assigned_to INTEGER,
         assigned_at TEXT,
-        archived_unused INTEGER DEFAULT 0
+        archived_unused INTEGER DEFAULT 0,
+        lost INTEGER DEFAULT 0
     )
     """)
     conn.commit()
@@ -156,12 +156,16 @@ def is_duplicate_hash(file_hash):
     return row is not None
 
 def get_free_ticket():
+    # Свободный билет = НЕ выдан, не архивный, не lost, файл существует
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND (archived_unused IS NULL OR archived_unused=0) LIMIT 1")
-    row = cur.fetchone()
+    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND archived_unused=0 AND lost=0")
+    files = [row[0] for row in cur.fetchall()]
     conn.close()
-    return row[0] if row else None
+    for f in files:
+        if os.path.isfile(f):
+            return f
+    return None
 
 def assign_ticket(file_path, user_id):
     now = datetime.now().isoformat()
@@ -186,7 +190,61 @@ def mark_ticket_archived_unused(file_path):
     conn.commit()
     conn.close()
 
+def mark_ticket_lost(file_path):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE tickets SET lost=1 WHERE file_path=? AND assigned_to IS NULL", (file_path,))
+    conn.commit()
+    conn.close()
 
+def archive_missing_tickets():
+    """
+    Помечает lost=1 все невыданные билеты (assigned_to IS NULL, archived_unused=0, lost=0),
+    у которых файла нет на диске.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND archived_unused=0 AND lost=0")
+    for (file_path,) in cur.fetchall():
+        if not os.path.isfile(file_path):
+            cur.execute("UPDATE tickets SET lost=1 WHERE file_path=?", (file_path,))
+    conn.commit()
+    conn.close()
+
+def archive_all_old_free_tickets():
+    """
+    Отмечает как archived_unused=1 все невыданные билеты (assigned_to IS NULL),
+    lost=0, archived_unused=0, и файл на месте.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND archived_unused=0 AND lost=0")
+    for (file_path,) in cur.fetchall():
+        if os.path.isfile(file_path):
+            cur.execute("UPDATE tickets SET archived_unused=1 WHERE file_path=?", (file_path,))
+    conn.commit()
+    conn.close()
+
+
+# --- Фильтры для статистики ---
+def get_stats_statuses():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    # Свободные: НЕ выданы, не архив, не lost, файл существует
+    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND archived_unused=0 AND lost=0")
+    free_files = [f for (f,) in cur.fetchall() if os.path.isfile(f)]
+    free_tickets = len(free_files)
+
+    # Выданные: assigned_to IS NOT NULL, lost=0
+    cur.execute("SELECT COUNT(*) FROM tickets WHERE assigned_to IS NOT NULL AND lost=0")
+    issued_tickets = cur.fetchone()[0]
+
+    # Утраченные: lost=1
+    cur.execute("SELECT COUNT(*) FROM tickets WHERE lost=1")
+    lost_tickets = cur.fetchone()[0]
+
+    conn.close()
+    return free_tickets, issued_tickets, lost_tickets
 
 # === WAVES ===
 def init_wave_table():
