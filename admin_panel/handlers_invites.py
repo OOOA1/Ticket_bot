@@ -1,5 +1,5 @@
 import os
-
+from admin_panel.invite_admin import export_users_xlsx
 from .utils import admin_error_catcher, awaiting_invite_count
 from database import get_admins
 from admin_panel.invite_admin import generate_invites, export_invites_xlsx
@@ -47,3 +47,20 @@ def register_invites_handlers(bot):
                     admin_id,
                     f"🔑 @{message.from_user.username} сгенерировал {count} новых invite-кодов."
                 )
+
+    @bot.message_handler(commands=['export_users'])
+    @admin_error_catcher(bot)
+    def export_users_handler(message):
+        ADMINS = get_admins()
+        if message.from_user.id not in ADMINS:
+            bot.reply_to(message, "Нет прав.")
+            return
+
+        path, user_count, admin_count = export_users_xlsx()
+        with open(path, "rb") as doc:
+            bot.send_document(
+                message.chat.id,
+                doc,
+                caption=f"Пользователей: {user_count}\nАдминов: {admin_count}"
+            )
+        os.remove(path)

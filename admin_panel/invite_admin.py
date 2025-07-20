@@ -5,7 +5,7 @@ import os
 import xlsxwriter
 
 DB_FILE = "users.db"
-BOT_USERNAME = "Tlcket_Bot"  # без @
+BOT_USERNAME = "todoVanekbot"  # без @
 
 def generate_invites(count):
     codes = set()
@@ -59,3 +59,50 @@ def export_invites_xlsx(codes):
 
         workbook.close()
         return tmp.name
+
+def export_users_xlsx():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    # Получаем пользователей с активированным invite-кодом
+    cur.execute("""
+        SELECT invite_code, username, user_id
+        FROM invite_codes
+        WHERE user_id IS NOT NULL
+    """)
+    rows = cur.fetchall()
+
+    # Считаем уникальных пользователей
+    user_count = len({row[2] for row in rows if row[2] is not None})
+
+    # Считаем админов
+    cur.execute("SELECT COUNT(*) FROM admins")
+    admin_count = cur.fetchone()[0]
+
+    conn.close()
+
+    # Генерируем .xlsx
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        workbook = xlsxwriter.Workbook(tmp.name)
+        worksheet = workbook.add_worksheet("Users")
+
+        # Заголовки
+        worksheet.write(0, 0, "invite_code")
+        worksheet.write(0, 1, "username")
+        worksheet.write(0, 2, "user_id")
+
+        for idx, (invite_code, username, user_id) in enumerate(rows, 1):
+            worksheet.write(idx, 0, invite_code)
+            worksheet.write(idx, 1, f"@{username}" if username else "")
+            worksheet.write(idx, 2, user_id)
+
+        worksheet.set_column(0, 0, 22)
+        worksheet.set_column(1, 1, 32)
+        worksheet.set_column(2, 2, 18)
+
+        # Числа пользователей и админов внизу (можно и в caption при отправке)
+        worksheet.write(idx + 2, 0, f"Пользователей: {user_count}")
+        worksheet.write(idx + 3, 0, f"Админов: {admin_count}")
+
+        workbook.close()
+        return tmp.name, user_count, admin_count

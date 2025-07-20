@@ -3,6 +3,8 @@ from config import BOT_TOKEN
 from database import init_db, add_user, get_admins
 from admin_panel import register_admin_handlers
 import sqlite3
+import time
+import traceback
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -48,8 +50,7 @@ def handle_start(message):
                     f"⚠️ Пользователь {user_id} попытался активировать второй инвайт-код {invite_code}. Код заблокирован."
                 )
             except Exception:
-                # на случай, если какой-то админ заблокировал бота
-                pass
+                pass  # если какой-то админ заблокировал бота
 
         bot.send_message(
             message.chat.id,
@@ -92,6 +93,17 @@ def handle_start(message):
         "СКОРО ВЫ ПОЛУЧИТЕ ИНФОРМАЦИЮ О ДОСТУПНЫХ МАТЧАХ."
     )
 
-# Запуск бота
-print("Бот запущен.")
-bot.infinity_polling()
+# ---- Watchdog ----
+
+def run_bot():
+    print("Бот запущен.")
+    bot.infinity_polling(timeout=30, long_polling_timeout=10)
+
+if __name__ == "__main__":
+    while True:
+        try:
+            run_bot()
+        except Exception as e:
+            print(f"[Watchdog] Ошибка: {e}")
+            traceback.print_exc()
+            time.sleep(10)

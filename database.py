@@ -56,9 +56,10 @@ def init_db():
     init_user_table()
     init_ticket_table()
     init_wave_table()
-    init_wave_confirmation_table()
     init_failed_deliveries_table()
     init_admins_table()
+    init_wave_meta_table()
+    init_invite_codes_table()
     for founder in FOUNDER_IDS:
         add_admin(founder)
 
@@ -75,6 +76,22 @@ def init_user_table():
     """)
     conn.commit()
     conn.close()
+
+def init_invite_codes_table():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS invite_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invite_code TEXT UNIQUE,
+            username TEXT,
+            user_id INTEGER,
+            is_used INTEGER DEFAULT 0
+        )
+    """)
+    conn.commit()
+    conn.close()
+
 
 def add_user(user_id, username):
     conn = sqlite3.connect(DB_PATH)
@@ -130,7 +147,8 @@ def init_ticket_table():
         assigned_to INTEGER,
         assigned_at TEXT,
         archived_unused INTEGER DEFAULT 0,
-        lost INTEGER DEFAULT 0
+        lost INTEGER DEFAULT 0,
+        wave_id INTEGER
     )
     """)
     conn.commit()
@@ -155,17 +173,23 @@ def is_duplicate_hash(file_hash):
     conn.close()
     return row is not None
 
-def get_free_ticket():
-    # Свободный билет = НЕ выдан, не архивный, не lost, файл существует
+def get_free_ticket(current_wave_id):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND archived_unused=0 AND lost=0")
+    cur.execute("""
+        SELECT file_path FROM tickets
+        WHERE assigned_to IS NULL
+        AND archived_unused = 0
+        AND lost = 0
+        AND wave_id = ?
+    """, (current_wave_id,))
     files = [row[0] for row in cur.fetchall()]
     conn.close()
     for f in files:
         if os.path.isfile(f):
             return f
     return None
+
 
 def assign_ticket(file_path, user_id):
     now = datetime.now().isoformat()
@@ -198,18 +222,17 @@ def mark_ticket_lost(file_path):
     conn.close()
 
 def archive_missing_tickets():
-    """
-    Помечает lost=1 все невыданные билеты (assigned_to IS NULL, archived_unused=0, lost=0),
-    у которых файла нет на диске.
-    """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND archived_unused=0 AND lost=0")
+    lost_count = 0
     for (file_path,) in cur.fetchall():
         if not os.path.isfile(file_path):
             cur.execute("UPDATE tickets SET lost=1 WHERE file_path=?", (file_path,))
+            lost_count += 1
     conn.commit()
     conn.close()
+    return lost_count
 
 def archive_all_old_free_tickets():
     """
@@ -266,9 +289,10 @@ def create_new_wave(created_by):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("INSERT INTO waves (wave_start, created_by, confirmed_at) VALUES (?, ?, ?)", (now, created_by, now))
+    wave_id = cur.lastrowid
     conn.commit()
     conn.close()
-    return now
+    return now, wave_id
 
 def get_latest_wave():
     conn = sqlite3.connect(DB_PATH)
@@ -277,50 +301,6 @@ def get_latest_wave():
     row = cur.fetchone()
     conn.close()
     return datetime.fromisoformat(row[0]) if row else None
-
-# === WAVE CONFIRMATIONS ===
-def init_wave_confirmation_table():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS wave_confirmations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        admin_id INTEGER,
-        status TEXT,
-        started_at TEXT,
-        confirmed_at TEXT
-    )
-    """)
-    conn.commit()
-    conn.close()
-
-def start_wave_confirmation(admin_id):
-    now = datetime.now().replace(microsecond=0).isoformat(" ")
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("INSERT INTO wave_confirmations (admin_id, status, started_at) VALUES (?, 'awaiting', ?)", (admin_id, now))
-    conn.commit()
-    conn.close()
-
-def confirm_wave(admin_id):
-    now = datetime.now().replace(microsecond=0).isoformat(" ")
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE wave_confirmations 
-        SET status = 'confirmed', confirmed_at = ? 
-        WHERE admin_id = ? AND status = 'awaiting'
-    """, (now, admin_id))
-    conn.commit()
-    conn.close()
-
-def has_pending_confirmation(admin_id):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM wave_confirmations WHERE admin_id = ? AND status = 'awaiting'", (admin_id,))
-    result = cur.fetchone()
-    conn.close()
-    return result is not None
 
 # === STATS ===
 def get_wave_stats(wave_start):
@@ -389,3 +369,48 @@ def get_admins() -> list[int]:
     admins = [row[0] for row in cur.fetchall()]
     conn.close()
     return admins
+
+def init_wave_meta_table():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS wave_meta (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            status TEXT NOT NULL,
+            prepared_at TEXT,
+            wave_start TEXT
+        )
+    """)
+    # вставим одну строку, если её нет
+    cur.execute("INSERT OR IGNORE INTO wave_meta (id, status) VALUES (1, 'idle')")
+    conn.commit()
+    conn.close()
+
+def set_wave_state(status, prepared_at=None, wave_start=None):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE wave_meta SET status = ?, prepared_at = ?, wave_start = ? WHERE id = 1
+    """, (status, prepared_at, wave_start))
+    conn.commit()
+    conn.close()
+
+def get_wave_state():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT status, prepared_at, wave_start FROM wave_meta WHERE id = 1")
+    row = cur.fetchone()
+    conn.close()
+    return {
+        "status": row[0],
+        "prepared_at": row[1],
+        "wave_start": row[2]
+    }
+
+def get_current_wave_id():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM waves ORDER BY wave_start DESC LIMIT 1")
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None

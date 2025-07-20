@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 from zipfile import ZipFile
 import shutil
@@ -13,6 +14,7 @@ from database import (
     get_free_ticket_count,
     is_duplicate_hash,
     insert_ticket,
+    get_wave_state
 )
 
 def register_tickets_handlers(bot):
@@ -65,6 +67,40 @@ def register_tickets_handlers(bot):
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             return
+        
+        state = get_wave_state()
+
+        # ⛔️ Запрещаем повторную загрузку в рамках одной волны
+        if state["status"] == "awaiting_confirm":
+            conn = sqlite3.connect("users.db")
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*) FROM tickets
+                WHERE assigned_to IS NULL
+                AND archived_unused = 0
+                AND lost = 0
+                AND wave_id IS NULL
+            """)
+            existing = cur.fetchone()[0]
+            conn.close()
+
+            if existing > 0:
+                bot.send_message(
+                    message.chat.id,
+                    f"⚠️ Вы уже загружали {existing} билетов для этой волны.\n"
+                    f"Чтобы дозагрузить билеты без удаления старых, используйте команду /upload_zip_add.\n"
+                    f"Если хотите начать заново — выполните /end_wave и /new_wave."
+                )
+                return
+            
+        if state["status"] != "awaiting_confirm":
+            bot.send_message(
+                message.chat.id,
+                "⚠️ Сейчас нельзя загружать билеты — сначала выполните /new_wave."
+            )
+            return
+        
+        # ✅ Всё в порядке — активируем режим загрузки
         upload_waiting[message.from_user.id] = True
         bot.send_message(message.chat.id, "Пришли ZIP-файл с билетами.")
 
@@ -74,6 +110,11 @@ def register_tickets_handlers(bot):
         ADMINS = load_admins()
         user_id = message.from_user.id
         mode = upload_waiting.get(user_id)
+        state = get_wave_state()
+        if state["status"] != "awaiting_confirm":
+            bot.reply_to(message, "⚠️ Сейчас нельзя загружать билеты — выполните /new_wave перед загрузкой.")
+            upload_waiting[user_id] = False
+            return
         if user_id in ADMINS and mode:
             doc = message.document
             if not doc.file_name.endswith('.zip'):
@@ -113,7 +154,12 @@ def register_tickets_handlers(bot):
     @admin_error_catcher(bot)
     def start_upload_add(message):
         ADMINS = load_admins()
+        state = get_wave_state()
         if message.from_user.id not in ADMINS:
+            return
+        
+        if state["status"] != "awaiting_confirm":
+            bot.reply_to(message, "⚠️ Сначала выполните /new_wave — загрузка доступна только в режиме подготовки.")
             return
         upload_waiting[message.from_user.id] = 'add'
         bot.send_message(message.chat.id, "Пришли ZIP-файл для ДОЗАГРУЗКИ билетов (старые останутся).")
