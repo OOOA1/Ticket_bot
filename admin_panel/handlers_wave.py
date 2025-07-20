@@ -15,6 +15,7 @@ from database import (
     set_wave_state,
     get_wave_state,
     get_admins,
+    get_current_wave_id,
     archive_all_old_free_tickets,
 )
 
@@ -81,6 +82,7 @@ def register_wave_handlers(bot):
         bot.send_message(message.chat.id, msg)
 
 
+    
     @bot.message_handler(commands=['confirm_wave'])
     @admin_error_catcher(bot)
     def handle_confirm_wave(message):
@@ -99,7 +101,6 @@ def register_wave_handlers(bot):
         admins = set(get_admins())
         user_count = len([uid for uid in all_users if uid not in admins])
 
-        # 🧹 Проверка на утраченные билеты
         lost_count = archive_missing_tickets()
 
         conn = sqlite3.connect("users.db")
@@ -112,7 +113,6 @@ def register_wave_handlers(bot):
             AND uploaded_at > ?
         """, (prepared_at.isoformat(),))
         available_tickets = cur.fetchone()[0]
-        conn.close()
 
         if available_tickets < user_count or available_tickets == 0:
             msg = (
@@ -124,19 +124,16 @@ def register_wave_handlers(bot):
                 msg += f"⚠️ Также обнаружено {lost_count} утраченных билетов.\n"
             msg += "Для загрузки билетов используйте /upload_zip"
             bot.send_message(message.chat.id, msg)
+            conn.close()
             return
 
         wave_start, wave_id = create_new_wave(message.from_user.id)
 
-        conn = sqlite3.connect("users.db")
-        cur = conn.cursor()
+        # Обновим wave_id для всех загруженных файлов, включая lost
         cur.execute("""
             UPDATE tickets
             SET assigned_at = NULL, wave_id = ?
-            WHERE assigned_to IS NULL
-            AND archived_unused = 0
-            AND lost = 0
-            AND uploaded_at > ?
+            WHERE wave_id IS NULL AND uploaded_at > ?
         """, (wave_id, prepared_at.isoformat()))
         conn.commit()
         conn.close()
@@ -152,6 +149,7 @@ def register_wave_handlers(bot):
         msg += "Теперь можно использовать /send_tickets."
 
         bot.send_message(message.chat.id, msg)
+
 
     
     @bot.message_handler(commands=['end_wave'])
@@ -178,3 +176,130 @@ def register_wave_handlers(bot):
             msg += f"\n⚠️ Также обнаружено {lost_count} утраченных билетов."
 
         bot.send_message(message.chat.id, msg)
+
+        ADMINS = load_admins()
+        if message.from_user.id not in ADMINS:
+            bot.reply_to(message, "❌ У вас нет прав.")
+            return
+
+        state = get_wave_state()
+        wave_status = state["status"]
+        wave_id = get_current_wave_id()
+
+        if not wave_id:
+            bot.send_message(message.chat.id, "📊 Статистика недоступна: волна не запущена.")
+            return
+
+        import sqlite3
+        conn = sqlite3.connect("users.db")
+        cur = conn.cursor()
+
+        # Все билеты в этой волне
+        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=?", (wave_id,))
+        total_tickets = cur.fetchone()[0]
+
+        # Свободные (невыданные)
+        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=? AND assigned_to IS NULL AND archived_unused=0 AND lost=0", (wave_id,))
+        free_tickets = cur.fetchone()[0]
+
+        # Выданные
+        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=? AND assigned_to IS NOT NULL AND lost=0", (wave_id,))
+        issued_tickets = cur.fetchone()[0]
+
+        # Утраченные
+        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=? AND lost=1", (wave_id,))
+        lost_tickets = cur.fetchone()[0]
+
+        # Пользователи (не админы)
+        all_users = get_all_user_ids()
+        admins = set(get_admins())
+        user_count = len([uid for uid in all_users if uid not in admins])
+
+        conn.close()
+
+        msg = (
+            f"<b>📊 Статистика текущей волны (ID {wave_id}):</b>\n\n"
+            f"🔄 Статус волны: <code>{wave_status}</code>\n"
+            f"👥 Пользователей: <b>{user_count}</b>\n"
+            f"🎟 Всего билетов в волне: <b>{total_tickets}</b>\n"
+            f"📬 Выдано: <b>{issued_tickets}</b>\n"
+            f"📦 Свободных: <b>{free_tickets}</b>\n"
+            f"❌ Утраченных: <b>{lost_tickets}</b>\n"
+        )
+        bot.send_message(message.chat.id, msg, parse_mode="HTML")
+
+   
+    @bot.message_handler(commands=['stats'])
+    @admin_error_catcher(bot)
+    def handle_stats(message):
+        ADMINS = load_admins()
+        if message.from_user.id not in ADMINS:
+            bot.reply_to(message, "❌ У вас нет прав.")
+            return
+
+        # 1. Актуализация: проверка файлов на утрату
+        lost_count = archive_missing_tickets()
+
+        # 2. Получаем статус волны и ID
+        state = get_wave_state()
+        wave_status = state["status"]
+        wave_id = get_current_wave_id()
+
+        # 3. Получаем список пользователей (без админов)
+        all_users = get_all_user_ids()
+        admins = set(get_admins())
+        user_count = len([uid for uid in all_users if uid not in admins])
+
+        # 4. Подсчёт билетов в зависимости от стадии волны
+        conn = sqlite3.connect("users.db")
+        cur = conn.cursor()
+
+        if wave_status == "active":
+            cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=?", (wave_id,))
+            total_tickets = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT COUNT(*) FROM tickets
+                WHERE wave_id=? AND assigned_to IS NULL AND archived_unused=0 AND lost=0
+            """, (wave_id,))
+            free_tickets = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT COUNT(*) FROM tickets
+                WHERE wave_id=? AND assigned_to IS NOT NULL AND lost=0
+            """, (wave_id,))
+            issued_tickets = cur.fetchone()[0]
+
+            cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=? AND lost=1", (wave_id,))
+            lost_tickets = cur.fetchone()[0]
+        else:
+            cur.execute("""
+                SELECT COUNT(*) FROM tickets
+                WHERE wave_id IS NULL AND assigned_to IS NULL AND archived_unused=0 AND lost=0
+            """)
+            total_tickets = cur.fetchone()[0]
+            free_tickets = total_tickets
+            issued_tickets = 0
+
+            cur.execute("""
+                SELECT COUNT(*) FROM tickets
+                WHERE wave_id IS NULL AND lost=1
+            """)
+            lost_tickets = cur.fetchone()[0]
+
+        conn.close()
+
+        # 5. Формируем отчёт
+        msg = (
+            f"<b>📊 Актуальная статистика волны:</b>\n\n"
+            f"🔄 Статус волны: <code>{wave_status}</code>\n"
+            f"👥 Пользователей (без админов): <b>{user_count}</b>\n"
+            f"🎟 Всего билетов: <b>{total_tickets}</b>\n"
+            f"📬 Выдано: <b>{issued_tickets}</b>\n"
+            f"📦 Свободных: <b>{free_tickets}</b>\n"
+            f"❌ Утраченных: <b>{lost_tickets}</b>\n"
+        )
+        if lost_count > 0:
+            msg += f"\n⚠️ Дополнительно обнаружено и помечено как утраченных: <b>{lost_count}</b> билетов."
+
+        bot.send_message(message.chat.id, msg, parse_mode="HTML")
