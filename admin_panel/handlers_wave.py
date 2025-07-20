@@ -82,7 +82,6 @@ def register_wave_handlers(bot):
         bot.send_message(message.chat.id, msg)
 
 
-
     @bot.message_handler(commands=['confirm_wave'])
     @admin_error_catcher(bot)
     def handle_confirm_wave(message):
