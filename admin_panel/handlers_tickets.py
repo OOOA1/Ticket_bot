@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 from zipfile import ZipFile
 import shutil
@@ -64,13 +65,42 @@ def register_tickets_handlers(bot):
     @admin_error_catcher(bot)
     def start_upload(message):
         ADMINS = load_admins()
-        state = get_wave_state()
         if message.from_user.id not in ADMINS:
             return
-        
+
+        state = get_wave_state()
+
+        # ⛔️ Запрещаем повторную загрузку в рамках одной волны
+        if state["status"] == "awaiting_confirm":
+            conn = sqlite3.connect("users.db")
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*) FROM tickets
+                WHERE assigned_to IS NULL
+                AND archived_unused = 0
+                AND lost = 0
+                AND wave_id IS NULL
+            """)
+            existing = cur.fetchone()[0]
+            conn.close()
+
+            if existing > 0:
+                bot.send_message(
+                    message.chat.id,
+                    f"⚠️ Вы уже загружали {existing} билетов для этой волны.\n"
+                    f"Чтобы дозагрузить билеты без удаления старых, используйте команду /upload_zip_add.\n"
+                    f"Если хотите начать заново — выполните /end_wave и /new_wave."
+                )
+                return
+
         if state["status"] != "awaiting_confirm":
-            bot.reply_to(message, "⚠️ Сначала выполните /new_wave — загрузка доступна только в режиме подготовки.")
+            bot.send_message(
+                message.chat.id,
+                "⚠️ Сейчас нельзя загружать билеты — сначала выполните /new_wave."
+            )
             return
+
+        # ✅ Всё в порядке — активируем режим загрузки
         upload_waiting[message.from_user.id] = True
         bot.send_message(message.chat.id, "Пришли ZIP-файл с билетами.")
 
