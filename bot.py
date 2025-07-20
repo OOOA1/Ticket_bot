@@ -19,6 +19,30 @@ def handle_start(message):
     args = message.text.split()
     user_id = message.from_user.id
 
+    # ---------- ПРОВЕРКА USERNAME ----------
+    if not message.from_user.username:
+        bot.send_message(
+            message.chat.id,
+            "⛔️ У вас не установлен username в Telegram.\n\n"
+            "Без него вы не сможете получить билет.\n\n"
+            "Что делать:\n"
+            "1. Откройте настройки Telegram.\n"
+            "2. Установите имя пользователя (username).\n"
+            "3. Снова перейдите по вашей пригласительной ссылке."
+        )
+
+        for admin_id in get_admins():
+            try:
+                bot.send_message(
+                    admin_id,
+                    f"⚠️ Пользователь {user_id} не смог активироваться по инвайту {args[1] if len(args)>1 else '[нет кода]'} — у него нет username.\n"
+                    f"Инвайт не сожжён. Пользователь не добавлен в базу."
+                )
+            except Exception:
+                pass
+        return
+    # ---------- END ПРОВЕРКА USERNAME ----------
+
     # 1) Без INVITE_CODE или неправильный формат
     if len(args) < 2 or not args[1].startswith("inv_"):
         bot.send_message(
@@ -93,17 +117,9 @@ def handle_start(message):
         "СКОРО ВЫ ПОЛУЧИТЕ ИНФОРМАЦИЮ О ДОСТУПНЫХ МАТЧАХ."
     )
 
-# ---- Watchdog ----
-
 def run_bot():
     print("Бот запущен.")
     bot.infinity_polling(timeout=30, long_polling_timeout=10)
 
 if __name__ == "__main__":
-    while True:
-        try:
-            run_bot()
-        except Exception as e:
-            print(f"[Watchdog] Ошибка: {e}")
-            traceback.print_exc()
-            time.sleep(10)
+    run_bot()

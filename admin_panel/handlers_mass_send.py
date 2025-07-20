@@ -16,6 +16,32 @@ from .utils import load_admins, logger
 from datetime import datetime
 import time
 import os
+import re
+
+# === Telegram 429 обработка ===
+def try_send_with_telegram_limit(send_func, *args, **kwargs):
+    """
+    Пытается отправить сообщение/документ, обрабатывает лимит 429 Too Many Requests.
+    send_func — функция отправки (например, bot.send_document)
+    *args, **kwargs — её параметры
+    """
+    for attempt in range(2):  # максимум 2 попытки (основная + одна после ожидания)
+        try:
+            return send_func(*args, **kwargs)
+        except Exception as e:
+            err = str(e)
+            # Ищем retry after в ошибке (TelegramAPIError: Too Many Requests: retry after 27)
+            if "retry after" in err:
+                try:
+                    retry_after = int(re.search(r'retry after (\d+)', err).group(1))
+                    time.sleep(retry_after + 1)
+                except Exception:
+                    time.sleep(5)
+            else:
+                if attempt == 0:
+                    time.sleep(5)  # стандартная пауза если это не лимит
+                else:
+                    raise  # на второй раз просто пробрасываем ошибку дальше
 
 def register_mass_send_handler(bot):
     @bot.message_handler(commands=['send_tickets'])
@@ -80,20 +106,21 @@ def register_mass_send_handler(bot):
                 failed_this_time.append(user_id)
                 continue
 
-            # 4. Пытаемся отправить (с ретраем)
+            # 4. Пытаемся отправить (с обработкой лимита)
             try:
                 with open(ticket_path, 'rb') as pdf:
-                    bot.send_document(user_id, pdf)
+                    try_send_with_telegram_limit(bot.send_document, user_id, pdf)
                 assign_ticket(ticket_path, user_id)
                 remove_failed_delivery(user_id)
                 sent_count += 1
                 logger.info(f"✅ Билет отправлен user_id={user_id} [{idx}/{len(user_ids)}]")
             except Exception as e:
-                logger.warning(f"Первая попытка неудачна для user_id={user_id}")
+                logger.warning(f"Первая попытка неудачна для user_id={user_id}: {e}")
+                # Попробуем ещё раз с задержкой
                 time.sleep(5)
                 try:
                     with open(ticket_path, 'rb') as pdf:
-                        bot.send_document(user_id, pdf)
+                        try_send_with_telegram_limit(bot.send_document, user_id, pdf)
                     assign_ticket(ticket_path, user_id)
                     remove_failed_delivery(user_id)
                     sent_count += 1
@@ -114,7 +141,6 @@ def register_mass_send_handler(bot):
                     logger.error(f"Ошибка отправки для user_id={user_id}: {e2}", exc_info=True)
                     failed_this_time.append(user_id)
                     continue
-
 
             time.sleep(5)
 
@@ -150,7 +176,7 @@ def register_mass_send_handler(bot):
 
                 try:
                     with open(ticket_path, 'rb') as pdf:
-                        bot.send_document(user_id, pdf)
+                        try_send_with_telegram_limit(bot.send_document, user_id, pdf)
                     assign_ticket(ticket_path, user_id)
                     remove_failed_delivery(user_id)
                     retry_sent += 1

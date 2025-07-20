@@ -7,9 +7,8 @@ import hashlib
 from uuid import uuid4
 from datetime import datetime
 from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets
-from .utils import admin_error_catcher, load_admins
-from config import DEFAULT_TICKET_FOLDER
 from .utils import admin_error_catcher, load_admins, upload_waiting, logger
+from config import DEFAULT_TICKET_FOLDER
 from database import (
     get_free_ticket_count,
     is_duplicate_hash,

@@ -5,7 +5,7 @@ import os
 import xlsxwriter
 
 DB_FILE = "users.db"
-BOT_USERNAME = "Tlcket_Bot"  # без @
+BOT_USERNAME = "todoVanekbot"  # без @
 
 def generate_invites(count):
     codes = set()
