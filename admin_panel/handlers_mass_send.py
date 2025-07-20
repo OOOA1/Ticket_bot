@@ -100,11 +100,21 @@ def register_mass_send_handler(bot):
                     logger.info(f"✅ Повторно отправлен user_id={user_id} [{idx}/{len(user_ids)}]")
                 except Exception as e2:
                     failed_count += 1
-                    err_msg = f"❌ Ошибка при повторной отправке user_id={user_id}: {e2}"
-                    bot.send_message(message.chat.id, err_msg)
-                    logger.error(err_msg, exc_info=True)
+                    error_text = str(e2)
+                    if "bot was blocked by the user" in error_text or "403" in error_text:
+                        bot.send_message(
+                            message.chat.id,
+                            f"❌ При повторной отправке user_id={user_id} вышла ошибка. Пользователь заблокировал бота."
+                        )
+                    else:
+                        bot.send_message(
+                            message.chat.id,
+                            f"❌ Ошибка при повторной отправке user_id={user_id}: {e2}"
+                        )
+                    logger.error(f"Ошибка отправки для user_id={user_id}: {e2}", exc_info=True)
                     failed_this_time.append(user_id)
                     continue
+
 
             time.sleep(5)
 
@@ -147,9 +157,18 @@ def register_mass_send_handler(bot):
                     logger.info(f"[AUTO-RETRY] Билет отправлен user_id={user_id}")
                 except Exception as e:
                     retry_failed += 1
-                    err_msg = f"[AUTO-RETRY] Ошибка при отправке для user_id={user_id}: {e}"
-                    bot.send_message(message.chat.id, err_msg)
-                    logger.error(err_msg, exc_info=True)
+                    error_text = str(e)
+                    if "bot was blocked by the user" in error_text or "403" in error_text:
+                        bot.send_message(
+                            message.chat.id,
+                            f"❌ При автоотправке user_id={user_id} — пользователь заблокировал бота."
+                        )
+                    else:
+                        bot.send_message(
+                            message.chat.id,
+                            f"[AUTO-RETRY] Ошибка при отправке для user_id={user_id}: {e}"
+                        )
+                    logger.error(f"[AUTO-RETRY] Ошибка для user_id={user_id}: {e}", exc_info=True)
                     continue
 
                 time.sleep(5)

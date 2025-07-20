@@ -6,7 +6,7 @@ import os
 
 
 DB_PATH = "users.db"
-FOUNDER_IDS = [5477727657]
+FOUNDER_IDS = [781477708]
 
 def init_failed_deliveries_table():
     conn = sqlite3.connect(DB_PATH)
