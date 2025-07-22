@@ -1,5 +1,5 @@
 import time
-from .utils import admin_error_catcher, load_admins
+from .utils import admin_error_catcher, load_admins, admin_required
 from database import get_all_user_ids
 
 def register_broadcast_handlers(bot):
@@ -7,6 +7,7 @@ def register_broadcast_handlers(bot):
         func=lambda m: (m.text and m.text.startswith('/broadcast')) or (m.caption and m.caption.startswith('/broadcast')),
         content_types=['text', 'photo', 'animation', 'document', 'video']
     )
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_broadcast(message):
         ADMINS = load_admins()

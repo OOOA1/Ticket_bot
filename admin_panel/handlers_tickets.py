@@ -7,7 +7,7 @@ import hashlib
 from uuid import uuid4
 from datetime import datetime
 from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets
-from .utils import admin_error_catcher, load_admins, upload_waiting, logger
+from .utils import admin_error_catcher, load_admins, upload_waiting, logger, admin_required
 from config import DEFAULT_TICKET_FOLDER
 from database import (
     get_free_ticket_count,
@@ -18,6 +18,7 @@ from database import (
 
 def register_tickets_handlers(bot):
     @bot.message_handler(commands=['delete_all'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def delete_all_tickets(message):
         ADMINS = load_admins()
@@ -36,6 +37,7 @@ def register_tickets_handlers(bot):
         bot.send_message(message.chat.id, f"Удалено файлов: {count}")
 
     @bot.message_handler(commands=['list_tickets'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def list_tickets(message):
         ADMINS = load_admins()
@@ -61,6 +63,7 @@ def register_tickets_handlers(bot):
         os.remove(temp_file_path)
 
     @bot.message_handler(commands=['upload_zip'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def start_upload(message):
         ADMINS = load_admins()
@@ -104,6 +107,7 @@ def register_tickets_handlers(bot):
         bot.send_message(message.chat.id, "Пришли ZIP-файл с билетами.")
 
     @bot.message_handler(content_types=['document'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_document(message):
         ADMINS = load_admins()
@@ -150,6 +154,7 @@ def register_tickets_handlers(bot):
 
     
     @bot.message_handler(commands=['upload_zip_add'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def start_upload_add(message):
         ADMINS = load_admins()

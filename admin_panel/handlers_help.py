@@ -1,7 +1,8 @@
-from .utils import admin_error_catcher, load_admins
+from .utils import admin_error_catcher, load_admins, admin_required
 
 def register_help_handlers(bot):
     @bot.message_handler(commands=['help'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_help(message):
         ADMINS = load_admins()

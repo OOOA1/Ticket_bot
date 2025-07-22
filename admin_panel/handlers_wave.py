@@ -2,7 +2,7 @@ import sqlite3
 
 from datetime import datetime
 
-from .utils import admin_error_catcher, load_admins
+from .utils import admin_error_catcher, load_admins, admin_required
 from database import (
     create_new_wave,
     get_all_user_ids,
@@ -21,6 +21,7 @@ from database import (
 
 def register_wave_handlers(bot):
     @bot.message_handler(commands=['new_wave'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_new_wave(message):
         ADMINS = load_admins()
@@ -83,6 +84,7 @@ def register_wave_handlers(bot):
 
 
     @bot.message_handler(commands=['confirm_wave'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_confirm_wave(message):
         ADMINS = load_admins()
@@ -152,6 +154,7 @@ def register_wave_handlers(bot):
 
     
     @bot.message_handler(commands=['end_wave'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_end_wave(message):
         ADMINS = load_admins()
@@ -229,6 +232,7 @@ def register_wave_handlers(bot):
 
    
     @bot.message_handler(commands=['stats'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_stats(message):
         ADMINS = load_admins()

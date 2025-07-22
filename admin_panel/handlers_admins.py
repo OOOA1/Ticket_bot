@@ -1,5 +1,5 @@
 from telebot import types
-from .utils import admin_error_catcher     # теперь обёртка ошибок берётся из utils
+from .utils import admin_error_catcher, admin_required    # теперь обёртка ошибок берётся из utils
 from database import (
     add_admin,
     remove_admin,
@@ -10,6 +10,7 @@ from database import (
 
 def register_admins_handlers(bot):
     @bot.message_handler(commands=['add_admin'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_add_admin(message):
         ADMINS = get_admins()
@@ -39,6 +40,7 @@ def register_admins_handlers(bot):
         )
 
     @bot.message_handler(commands=['remove_admin'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_remove_admin(message):
         ADMINS = get_admins()
@@ -76,6 +78,7 @@ def register_admins_handlers(bot):
         )
 
     @bot.message_handler(commands=['myid'])
+    @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_myid(message):
         bot.reply_to(message, f"Ваш user_id: {message.from_user.id}")

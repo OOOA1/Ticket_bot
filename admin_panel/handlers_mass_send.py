@@ -116,7 +116,6 @@ def register_mass_send_handler(bot):
                 logger.info(f"✅ Билет отправлен user_id={user_id} [{idx}/{len(user_ids)}]")
             except Exception as e:
                 logger.warning(f"Первая попытка неудачна для user_id={user_id}: {e}")
-                # Попробуем ещё раз с задержкой
                 time.sleep(5)
                 try:
                     with open(ticket_path, 'rb') as pdf:
@@ -127,11 +126,26 @@ def register_mass_send_handler(bot):
                     logger.info(f"✅ Повторно отправлен user_id={user_id} [{idx}/{len(user_ids)}]")
                 except Exception as e2:
                     failed_count += 1
-                    error_text = str(e2)
-                    if "bot was blocked by the user" in error_text or "403" in error_text:
+                    error_text = str(e2).lower()  # сразу в нижний регистр для удобства поиска
+
+                    error_keywords = [
+                        "bot was blocked by the user",
+                        "403",
+                        "400",
+                        "bad request",
+                        "chat not found",
+                        "file must be non-empty",
+                        "user is deactivated",
+                        "can't initiate conversation",
+                        "forbidden"
+                    ]
+
+                    if any(keyword in error_text for keyword in error_keywords):
                         bot.send_message(
                             message.chat.id,
-                            f"❌ При повторной отправке user_id={user_id} вышла ошибка. Пользователь заблокировал бота."
+                            f"❌ При повторной отправке user_id={user_id} возникла критическая ошибка доставки. "
+                            f"Пользователь заблокировал бота или доступ ограничен. "
+                            f"\nОшибка: {error_text}"
                         )
                     else:
                         bot.send_message(
@@ -183,11 +197,26 @@ def register_mass_send_handler(bot):
                     logger.info(f"[AUTO-RETRY] Билет отправлен user_id={user_id}")
                 except Exception as e:
                     retry_failed += 1
-                    error_text = str(e)
-                    if "bot was blocked by the user" in error_text or "403" in error_text:
+                    error_text = str(e).lower()
+
+                    error_keywords = [
+                        "bot was blocked by the user",
+                        "403",
+                        "400",
+                        "bad request",
+                        "chat not found",
+                        "file must be non-empty",
+                        "user is deactivated",
+                        "can't initiate conversation",
+                        "forbidden"
+                    ]
+
+                    if any(keyword in error_text for keyword in error_keywords):
                         bot.send_message(
                             message.chat.id,
-                            f"❌ При автоотправке user_id={user_id} — пользователь заблокировал бота."
+                            f"❌ При автоотправке user_id={user_id} возникла критическая ошибка доставки. "
+                            f"Пользователь заблокировал бота или доступ ограничен. "
+                            f"\nОшибка: {error_text}"
                         )
                     else:
                         bot.send_message(
@@ -198,6 +227,7 @@ def register_mass_send_handler(bot):
                     continue
 
                 time.sleep(5)
+
 
             total_time_retry = int(time.time() - start_time_retry)
             pending_after_retry = get_all_failed_deliveries()

@@ -1,6 +1,7 @@
 import os
 import logging
-from database import get_admins
+from datetime import datetime
+from database import get_admins, is_registered
 
 LOG_FILE = "bot_errors.log"
 
@@ -22,6 +23,55 @@ logger = logging.getLogger("admin_panel")
 def load_admins() -> list[int]:
     """Возвращает список ID админов из БД."""
     return get_admins()
+
+def admin_required(bot):
+    """
+    Декоратор для проверки прав администратора.
+    - Если user_id в admins: разрешаем.
+    - Если user_id не в admins, но есть в users: пишем 'Нет прав', логируем и уведомляем.
+    - Если user_id нет нигде: просто молчим.
+    """
+    def decorator(func):
+        def wrapper(message, *args, **kwargs):
+            ADMINS = get_admins()
+            user_id = message.from_user.id
+            username = getattr(message.from_user, "username", None)
+            command = message.text.split()[0] if message.text else ""
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            if user_id in ADMINS:
+                # Всё ок, админ — пускаем дальше
+                return func(message, *args, **kwargs)
+            elif is_registered(user_id):
+                # Не админ, но зарегистрированный пользователь — логируем и отвечаем
+                logger.info(
+                    f"[SECURITY] User {user_id} (@{username}) попытался вызвать команду {command} "
+                    f"в {now} — прав нет"
+                )
+
+                # Сообщение всем админам
+                for admin_id in ADMINS:
+                    try:
+                        bot.send_message(
+                            admin_id,
+                            f"⚠️ User <b>{user_id}</b> (@{username}) попытался использовать админ-команду <b>{command}</b> "
+                            f"\nВремя: {now}",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+
+                try:
+                    bot.reply_to(message, "Нет прав для этой команды.")
+                except Exception:
+                    pass
+                return
+            else:
+                # Вообще не авторизован — просто молчим!
+                return
+        return wrapper
+    return decorator
+
 
 def admin_error_catcher(bot):
     """

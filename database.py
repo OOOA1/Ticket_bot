@@ -100,6 +100,43 @@ def add_user(user_id, username):
     conn.commit()
     conn.close()
 
+def is_registered(user_id: int) -> bool:
+    """
+    Проверяет, есть ли user_id в таблице users.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    result = cur.fetchone()
+    conn.close()
+    return result is not None
+
+def delete_user_everywhere(user_id: int, username: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # Удаление из основной таблицы пользователей
+    cur.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+
+    # Удаление из invite_codes
+    cur.execute("DELETE FROM invite_codes WHERE user_id = ?", (user_id,))
+
+    # Удаление из failed_deliveries
+    cur.execute("DELETE FROM failed_deliveries WHERE user_id = ?", (user_id,))
+
+    # --- Новый блок: удаление из tickets ---
+    # Сбросить assigned_to для всех билетов пользователя
+    cur.execute("UPDATE tickets SET assigned_to = NULL, assigned_at = NULL WHERE assigned_to = ?", (user_id,))
+
+    # Если хочешь убрать билеты, загруженные этим пользователем (uploaded_by):
+    # cur.execute("DELETE FROM tickets WHERE uploaded_by = ?", (user_id,))
+
+    changes = conn.total_changes
+    conn.commit()
+    conn.close()
+
+    return changes > 0
+
 def get_user_last_ticket_time(user_id):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -135,9 +172,8 @@ def get_all_user_ids():
 def init_ticket_table():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS tickets")
     cur.execute("""
-    CREATE TABLE tickets (
+    CREATE TABLE IF NOT EXISTS tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         file_path TEXT UNIQUE,
         hash TEXT UNIQUE,
@@ -369,6 +405,17 @@ def get_admins() -> list[int]:
     admins = [row[0] for row in cur.fetchall()]
     conn.close()
     return admins
+
+def is_admin(user_id: int) -> bool:
+    """
+    Проверяет, является ли пользователь админом (по user_id).
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM admins WHERE user_id = ?", (user_id,))
+    result = cur.fetchone()
+    conn.close()
+    return result is not None
 
 def init_wave_meta_table():
     conn = sqlite3.connect(DB_PATH)
