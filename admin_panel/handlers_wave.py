@@ -18,6 +18,7 @@ from database import (
     get_current_wave_id,
     archive_all_old_free_tickets,
 )
+from database import DB_PATH
 
 def register_wave_handlers(bot):
     @bot.message_handler(commands=['new_wave'])
@@ -78,7 +79,7 @@ def register_wave_handlers(bot):
         )
         if lost_count > 0:
             msg += f"⚠️ Помечено как утраченных: {lost_count} билетов.\n"
-        msg += "📥 Загрузите билеты и подтвердите волну через /confirm_wave."
+        msg += "📥 Загрузите билеты /upload_zip и подтвердите волну через /confirm_wave."
 
         bot.send_message(message.chat.id, msg)
 

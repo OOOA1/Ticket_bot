@@ -6,7 +6,7 @@ import os
 
 
 DB_PATH = "users.db"
-FOUNDER_IDS = [781477708]
+FOUNDER_IDS = [5477727657]
 
 def init_failed_deliveries_table():
     conn = sqlite3.connect(DB_PATH)
@@ -284,6 +284,40 @@ def archive_all_old_free_tickets():
     conn.commit()
     conn.close()
 
+def release_ticket(ticket_path):
+    """
+    Освободить один билет: сбросить assigned_to и assigned_at,
+    чтобы он стал вновь доступным.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL WHERE file_path = ?",
+        (ticket_path,)
+    )
+    conn.commit()
+    conn.close()
+
+def clear_user_assignments(user_id, exclude_path=None):
+    """
+    Снять все назначения билетов у пользователя (optionally, кроме одного).
+    Это предотвращает ситуацию, когда у одного user_id «висят» несколько билетов.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    if exclude_path:
+        cur.execute(
+            "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL "
+            "WHERE assigned_to = ? AND file_path != ?",
+            (user_id, exclude_path)
+        )
+    else:
+        cur.execute(
+            "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL WHERE assigned_to = ?",
+            (user_id,)
+        )
+    conn.commit()
+    conn.close()
 
 # --- Фильтры для статистики ---
 def get_stats_statuses():
