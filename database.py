@@ -6,7 +6,7 @@ import os
 
 
 DB_PATH = "users.db"
-FOUNDER_IDS = [781477708]
+FOUNDER_IDS = [5477727657]
 
 def init_failed_deliveries_table():
     conn = sqlite3.connect(DB_PATH)
@@ -330,7 +330,6 @@ def clear_user_assignments(user_id, exclude_path=None):
         )
     conn.commit()
     conn.close()
-
 
 # --- Фильтры для статистики ---
 def get_stats_statuses():

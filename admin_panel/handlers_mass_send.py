@@ -156,7 +156,6 @@ def register_mass_send_handler(bot):
                     # 2) проверяем retry-after для 429
                     m = re.search(r'retry after (\d+)', err)
                     wait = (int(m.group(1)) + 1) if m else delay
-
                     # 3) если ещё есть попытки — ждём и удваиваем delay
                     if attempt < max_retries:
                         logger.warning(f"Попытка {attempt} не удалась для user_id={user_id}: {e}. Ждём {wait} сек.")
@@ -275,6 +274,9 @@ def register_mass_send_handler(bot):
                         retry_failed += 1
                 # конец цикла попыток
 
+                        logger.error(f"[AUTO-RETRY] Потерян билет {ticket_path} для {user_id}")
+                        retry_failed += 1
+                # конец цикла попыток
                 time.sleep(5)
 
             total_time_retry = int(time.time() - start_time_retry)

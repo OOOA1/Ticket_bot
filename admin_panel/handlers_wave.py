@@ -19,6 +19,7 @@ from database import (
     archive_all_old_free_tickets,
     DB_PATH,
 )
+from database import DB_PATH
 
 def register_wave_handlers(bot):
     @bot.message_handler(commands=['new_wave'])

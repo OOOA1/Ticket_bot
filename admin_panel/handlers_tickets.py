@@ -58,7 +58,6 @@ def register_tickets_handlers(bot):
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             return
-
         # Актуализируем: помечаем в базе как LOST все отсутствующие файлы
         archive_missing_tickets()
         # 1) Получаем все записи из таблицы tickets
@@ -73,7 +72,6 @@ def register_tickets_handlers(bot):
         if not rows:
             bot.send_message(message.chat.id, "Нет загруженных билетов.")
             return
-
         # 2) Генерируем Excel-файл
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
             wb = xlsxwriter.Workbook(tmp.name)
@@ -253,7 +251,6 @@ def register_tickets_handlers(bot):
                 upload_files_received.pop(user_id, None)
                 upload_files_time.pop(user_id, None)
 
-    
     @bot.message_handler(commands=['upload_zip_add'])
     @admin_required(bot)
     @admin_error_catcher(bot)
