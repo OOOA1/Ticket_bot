@@ -1,19 +1,34 @@
 import os
 import sqlite3
 import tempfile
+import xlsxwriter
 from zipfile import ZipFile
 import shutil
 import hashlib
 from uuid import uuid4
 from datetime import datetime
-from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets
-from .utils import admin_error_catcher, load_admins, upload_waiting, logger, admin_required
+from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets, get_current_wave_id
+from .utils import (
+    admin_error_catcher, load_admins, upload_waiting, logger, admin_required,
+    upload_files_received, upload_files_time
+)
+import time  # понадобится для таймаута
 from config import DEFAULT_TICKET_FOLDER
 from database import (
     get_free_ticket_count,
     is_duplicate_hash,
     insert_ticket,
-    get_wave_state
+    get_wave_state,
+    resolve_user_id,
+    get_user_last_ticket_time,
+    get_latest_wave,
+    get_current_wave_id,
+    get_free_ticket,
+    assign_ticket,
+    is_registered,
+    get_wave_state,
+    DB_PATH,
+    archive_missing_tickets
 )
 
 def register_tickets_handlers(bot):
@@ -44,23 +59,51 @@ def register_tickets_handlers(bot):
         if message.from_user.id not in ADMINS:
             return
 
-        files = os.listdir(DEFAULT_TICKET_FOLDER)
-        if not files:
+        # Актуализируем: помечаем в базе как LOST все отсутствующие файлы
+        archive_missing_tickets()
+        # 1) Получаем все записи из таблицы tickets
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT file_path, original_name, assigned_to, assigned_at, archived_unused, lost, wave_id
+            FROM tickets
+        """)
+        rows = cur.fetchall()
+        conn.close()  
+        if not rows:
             bot.send_message(message.chat.id, "Нет загруженных билетов.")
             return
 
-        # Создаём временный .txt файл с именами
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt', encoding='utf-8') as temp_file:
-            file_list = "\n".join(files)
-            temp_file.write(file_list)
-            temp_file_path = temp_file.name
-
-        # Отправляем файл как документ
-        with open(temp_file_path, 'rb') as doc:
-            bot.send_document(message.chat.id, doc, caption="Список загруженных билетов")
-
-        # Удаляем временный файл
-        os.remove(temp_file_path)
+        # 2) Генерируем Excel-файл
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
+            wb = xlsxwriter.Workbook(tmp.name)
+            ws = wb.add_worksheet("Tickets Status")
+            # Заголовки
+            headers = ["File Path", "Original Name", "Status", "Assigned To", "Assigned At", "Wave ID"]
+            for col, hdr in enumerate(headers):
+                ws.write(0, col, hdr) 
+            # Данные
+            for i, (path, orig, assigned_to, assigned_at, archived_unused, lost, wave_id) in enumerate(rows, start=1):
+                if lost:
+                    status = "LOST"
+                elif assigned_to is not None:
+                    status = "SENT"
+                elif archived_unused:
+                    status = "ARCHIVED"
+                else:
+                    status = "AVAILABLE"  
+                ws.write(i, 0, path)
+                ws.write(i, 1, orig)
+                ws.write(i, 2, status)
+                ws.write(i, 3, assigned_to or "")
+                ws.write(i, 4, assigned_at or "")
+                ws.write(i, 5, wave_id or "") 
+            wb.close()
+            report_path = tmp.name
+        # 3) Отправляем отчёт администратору
+        with open(report_path, 'rb') as doc:
+            bot.send_document(message.chat.id, doc, caption="📊 Список билетов с их статусами")
+        os.remove(report_path)
 
     @bot.message_handler(commands=['upload_zip'])
     @admin_required(bot)
@@ -104,6 +147,8 @@ def register_tickets_handlers(bot):
         
         # ✅ Всё в порядке — активируем режим загрузки
         upload_waiting[message.from_user.id] = True
+        upload_files_received[message.from_user.id] = 0
+        upload_files_time[message.from_user.id] = None
         bot.send_message(message.chat.id, "Пришли ZIP-файл с билетами.")
 
     @bot.message_handler(content_types=['document'])
@@ -112,45 +157,101 @@ def register_tickets_handlers(bot):
     def handle_document(message):
         ADMINS = load_admins()
         user_id = message.from_user.id
+
+        # --- Новое: если вне режима ожидания — молчим, ничего не пишем! ---
+        if user_id not in upload_files_received or not upload_waiting.get(user_id):
+            return
+
         mode = upload_waiting.get(user_id)
         state = get_wave_state()
-        if state["status"] != "awaiting_confirm":
-            bot.reply_to(message, "⚠️ Сейчас нельзя загружать билеты — выполните /new_wave перед загрузкой.")
-            upload_waiting[user_id] = False
+        # Только админы, только когда действительно ждём загрузку
+        if user_id not in ADMINS or not mode:
+            upload_files_received.pop(user_id, None)
+            upload_files_time.pop(user_id, None)
             return
-        if user_id in ADMINS and mode:
-            doc = message.document
-            if not doc.file_name.endswith('.zip'):
-                bot.reply_to(message, "Пожалуйста, пришли .zip архив.")
+        # Проверяем, разрешено ли в текущем статусе
+        if mode == 'add':
+            if state["status"] not in ("awaiting_confirm", "active"):
+                bot.reply_to(
+                    message,
+                    "⚠️ Дозагрузка билетов возможна только во время подготовки (/new_wave) "
+                    "или во время активной волны."
+                )
+                upload_waiting[user_id] = False
+                return
+        else:  # первичная загрузка
+            if state["status"] != "awaiting_confirm":
+                bot.reply_to(
+                    message,
+                    "⚠️ Первичная загрузка билетов возможна только во время подготовки волны (/new_wave)."
+                )
+                upload_waiting[user_id] = False
                 return
 
+
+            if upload_files_received.get(user_id, 0) == 0:
+                upload_files_time[user_id] = time.time()
+            upload_files_received[user_id] = upload_files_received.get(user_id, 0) + 1
+
+            # --- Главная защита: если больше одного файла — только один раз шлём ошибку, дальше молчим ---
+            if upload_files_received[user_id] > 1:
+                bot.reply_to(message, "❌ Ты не можешь прикрепить несколько zip-файлов, пришли только 1!")
+                logger.info(f"User {user_id} пытался отправить больше одного zip-файла — отказано без ошибок.")
+                # Сбросили состояния — больше ничего не делаем!
+                upload_waiting[user_id] = False
+                upload_files_received.pop(user_id, None)
+                upload_files_time.pop(user_id, None)
+                return
+
+            time_passed = time.time() - upload_files_time[user_id]
+            if time_passed < 2:
+                time.sleep(2 - time_passed)
+                
+            # После ожидания — финальная проверка!
+            if upload_files_received.get(user_id, 0) > 1 or not upload_waiting.get(user_id):
+                # Ничего не делаем, ошибку уже отправили, состояния сброшены
+                return
+
+
+            # Всё ок, принимаем .zip
+            doc = message.document
+            if not doc.file_name.endswith('.zip'):
+                bot.reply_to(message, "Пожалуйста, пришлите ZIP-архив (.zip).")
+                return
+            
             try:
+                # Скачиваем архив
                 file_info = bot.get_file(doc.file_id)
                 downloaded = bot.download_file(file_info.file_path)
-
                 zip_path = f"temp_upload_{user_id}.zip"
                 with open(zip_path, 'wb') as f:
                     f.write(downloaded)
 
-                if mode == True:
+                # Обрабатываем в зависимости от режима
+                if mode is True:
                     # СТАРАЯ ЛОГИКА — архивировать старые, добавить новые
                     report_path = process_zip(zip_path, uploaded_by=user_id, bot=bot)
-                elif mode == 'add':
-                    # ДОЗАГРУЗКА: только добавить новые файлы, ничего не архивировать
-                    report_path = process_zip_add(zip_path, uploaded_by=user_id, bot=bot)
                 else:
-                    report_path = None
+                    # mode == 'add' — только добавить новые файлы
+                    report_path = process_zip_add(zip_path, uploaded_by=user_id, bot=bot)
 
+                # Отправляем отчёт, если он есть
                 if report_path:
                     with open(report_path, 'rb') as rep:
                         bot.send_document(message.chat.id, rep, caption="📄 Отчёт о загрузке билетов")
                     os.remove(report_path)
-                os.remove(zip_path)
-            except Exception as e:
-                bot.send_message(message.chat.id, "Ошибка при загрузке архива.")
-                logger.error(f"Ошибка при обработке архива: {e}", exc_info=True)
 
-            upload_waiting[user_id] = False
+                # Удаляем сам ZIP
+                os.remove(zip_path)
+
+            except Exception as e:
+                bot.send_message(message.chat.id, "❗️ Ошибка при обработке архива.")
+                logger.error(f"Ошибка при обработке архива для user_id={user_id}: {e}", exc_info=True)
+            finally:
+
+                upload_waiting[user_id] = False
+                upload_files_received.pop(user_id, None)
+                upload_files_time.pop(user_id, None)
 
     
     @bot.message_handler(commands=['upload_zip_add'])
@@ -162,11 +263,56 @@ def register_tickets_handlers(bot):
         if message.from_user.id not in ADMINS:
             return
         
-        if state["status"] != "awaiting_confirm":
-            bot.reply_to(message, "⚠️ Сначала выполните /new_wave — загрузка доступна только в режиме подготовки.")
-            return
+        if state["status"] == "idle":
+            bot.reply_to(
+                message,
+                "⚠️ Дозагрузка билетов доступна только после /new_wave (в режимах подготовки и активной волны)."
+            )
         upload_waiting[message.from_user.id] = 'add'
+        upload_files_received[message.from_user.id] = 0
+        upload_files_time[message.from_user.id] = None
         bot.send_message(message.chat.id, "Пришли ZIP-файл для ДОЗАГРУЗКИ билетов (старые останутся).")
+
+    @bot.message_handler(commands=['force_give'])
+    @admin_required(bot)
+    @admin_error_catcher(bot)
+    def handle_force_give(message):
+        args = message.text.split()
+        if len(args) != 2:
+            bot.reply_to(message, "Используйте: /force_give @username или /force_give user_id")
+            return
+
+        user_ref = args[1]
+        user_id = resolve_user_id(user_ref)
+        if not user_id or not is_registered(user_id):
+            bot.reply_to(message, "Пользователь не найден в базе.")
+            return
+
+        wave_start = get_latest_wave()
+        wave_id = get_current_wave_id()
+        if not wave_id or not wave_start:
+            bot.reply_to(message, "Нет активной волны.")
+            return
+
+        last_ticket = get_user_last_ticket_time(user_id)
+        if last_ticket and last_ticket >= wave_start:
+            bot.reply_to(message, "Пользователь уже получил билет в этой волне.")
+            return
+
+        ticket_path = get_free_ticket(wave_id)
+        if not ticket_path:
+            bot.reply_to(message, "Нет доступных билетов для выдачи.")
+            return
+
+        try:
+            with open(ticket_path, "rb") as pdf:
+                bot.send_document(user_id, pdf, caption="🎟 Ваш билет выдан вручную администратором.")
+            assign_ticket(ticket_path, user_id)
+            bot.reply_to(message, f"✅ Билет отправлен пользователю {user_ref}.")
+            logger.info(f"Админ {message.from_user.id} выдал билет пользователю {user_id} через /force_give.")
+        except Exception as e:
+            bot.reply_to(message, f"Ошибка при отправке билета: {e}")
+            logger.error(f"Ошибка выдачи билета через /force_give: {e}", exc_info=True)
 
 
 
@@ -333,6 +479,16 @@ def process_zip_add(zip_path, uploaded_by, bot):
             with open(full_path, "wb") as f:
                 f.write(content)
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
+            # Привязываем новый билет к текущей активной волне
+            wave_id = get_current_wave_id()
+            conn = sqlite3.connect("users.db")
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE tickets SET wave_id = ? WHERE file_path = ?",
+                (wave_id, full_path)
+            )
+            conn.commit()
+            conn.close()
             added.append((original_name, uuid_name))
 
     report_lines = [

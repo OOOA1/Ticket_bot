@@ -9,6 +9,12 @@ LOG_FILE = "bot_errors.log"
 upload_waiting = {}
 awaiting_invite_count = {}
 
+# --- Новое: состояния загрузки файлов ---
+upload_files_received = {}   # сколько файлов прислал каждый админ после upload-команды
+upload_files_time = {}       # время первого файла (для таймаута)
+upload_files_buffer = {}     # сами документы, если нужно буферизовать их (опционально)
+
+
 # Логгер для админских команд
 logging.basicConfig(
     level=logging.INFO,

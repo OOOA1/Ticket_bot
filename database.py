@@ -160,6 +160,18 @@ def get_user_id_by_username(username):
     conn.close()
     return row[0] if row else None
 
+def resolve_user_id(user_ref):
+    """
+    Возвращает user_id по username (с @) или по числу (user_id).
+    Если ничего не найдено — возвращает None.
+    """
+    if isinstance(user_ref, int) or (isinstance(user_ref, str) and user_ref.isdigit()):
+        return int(user_ref)
+    username = user_ref
+    if username.startswith("@"):
+        username = username[1:]
+    return get_user_id_by_username(username)
+
 def get_all_user_ids():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -281,6 +293,41 @@ def archive_all_old_free_tickets():
     for (file_path,) in cur.fetchall():
         if os.path.isfile(file_path):
             cur.execute("UPDATE tickets SET archived_unused=1 WHERE file_path=?", (file_path,))
+    conn.commit()
+    conn.close()
+
+def release_ticket(ticket_path):
+    """
+    Освободить один билет: сбросить assigned_to и assigned_at,
+    чтобы он стал вновь доступным.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL WHERE file_path = ?",
+        (ticket_path,)
+    )
+    conn.commit()
+    conn.close()
+
+def clear_user_assignments(user_id, exclude_path=None):
+    """
+    Снять все назначения билетов у пользователя (optionally, кроме одного).
+    Это предотвращает ситуацию, когда у одного user_id «висят» несколько билетов.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    if exclude_path:
+        cur.execute(
+            "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL "
+            "WHERE assigned_to = ? AND file_path != ?",
+            (user_id, exclude_path)
+        )
+    else:
+        cur.execute(
+            "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL WHERE assigned_to = ?",
+            (user_id,)
+        )
     conn.commit()
     conn.close()
 

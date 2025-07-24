@@ -17,6 +17,7 @@ from database import (
     get_admins,
     get_current_wave_id,
     archive_all_old_free_tickets,
+    DB_PATH,
 )
 
 def register_wave_handlers(bot):
@@ -78,7 +79,7 @@ def register_wave_handlers(bot):
         )
         if lost_count > 0:
             msg += f"⚠️ Помечено как утраченных: {lost_count} билетов.\n"
-        msg += "📥 Загрузите билеты и подтвердите волну через /confirm_wave."
+        msg += "📥 Загрузите билеты /upload_zip и подтвердите волну через /confirm_wave."
 
         bot.send_message(message.chat.id, msg)
 
@@ -178,11 +179,6 @@ def register_wave_handlers(bot):
             msg += f"\n⚠️ Также обнаружено {lost_count} утраченных билетов."
 
         bot.send_message(message.chat.id, msg)
-
-        ADMINS = load_admins()
-        if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "❌ У вас нет прав.")
-            return
 
         state = get_wave_state()
         wave_status = state["status"]

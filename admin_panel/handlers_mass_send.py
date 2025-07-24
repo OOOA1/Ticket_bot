@@ -11,12 +11,16 @@ from database import (
     clear_failed_deliveries,
     get_wave_state,
     get_current_wave_id,
+    mark_ticket_lost,
+    release_ticket,
+    clear_user_assignments,
 )
-from .utils import load_admins, logger
+from .utils import load_admins, logger, admin_required, admin_error_catcher
 from datetime import datetime
 import time
 import os
 import re
+import random
 
 # === Telegram 429 обработка ===
 def try_send_with_telegram_limit(send_func, *args, **kwargs):
@@ -95,68 +99,88 @@ def register_mass_send_handler(bot):
                     )
                     logger.info("Рассылка завершена: билеты закончились.")
                     break
+                clear_user_assignments(user_id)
                 reserve_ticket_for_user(ticket_path, user_id)
                 add_failed_delivery(user_id, ticket_path)
 
             if not os.path.isfile(ticket_path):
-                failed_count += 1
-                err_msg = f"❌ Файл билета не найден: {ticket_path}. Пропускаем {user_id}."
-                bot.send_message(message.chat.id, err_msg)
-                logger.error(err_msg)
-                failed_this_time.append(user_id)
-                continue
+                # === Шаг 1: файл не найден – регистрируем неудачную доставку и уведомляем админов ===
+                        add_failed_delivery(user_id, ticket_path)
+                        for admin_id in get_admins():
+                            try:
+                                bot.send_message(
+                                    admin_id,
+                                    f"❌ Файл билета для user_id={user_id} не найден: {ticket_path}.\n"
+                                    "Пользователь добавлен в failed_deliveries."
+                                )
+                            except:
+                                pass
+                        bot.send_message(
+                            message.chat.id,
+                            "Извините, билет не найден. Администраторы уведомлены."
+                        )
+                        failed_count += 1
+                        logger.error(f"❌ Файл билета не найден: {ticket_path} для user_id={user_id}")
+                        failed_this_time.append(user_id)
+                        continue
 
-            # 4. Пытаемся отправить (с обработкой лимита)
-            try:
-                with open(ticket_path, 'rb') as pdf:
-                    try_send_with_telegram_limit(bot.send_document, user_id, pdf)
-                assign_ticket(ticket_path, user_id)
-                remove_failed_delivery(user_id)
-                sent_count += 1
-                logger.info(f"✅ Билет отправлен user_id={user_id} [{idx}/{len(user_ids)}]")
-            except Exception as e:
-                logger.warning(f"Первая попытка неудачна для user_id={user_id}: {e}")
-                time.sleep(5)
+            # 4. Отправка с 3 попытками и экспоненциальным бэкоффом
+            max_retries = 3
+            delay = 5
+            for attempt in range(1, max_retries + 1):
                 try:
                     with open(ticket_path, 'rb') as pdf:
                         try_send_with_telegram_limit(bot.send_document, user_id, pdf)
                     assign_ticket(ticket_path, user_id)
                     remove_failed_delivery(user_id)
                     sent_count += 1
-                    logger.info(f"✅ Повторно отправлен user_id={user_id} [{idx}/{len(user_ids)}]")
-                except Exception as e2:
-                    failed_count += 1
-                    error_text = str(e2).lower()  # сразу в нижний регистр для удобства поиска
-
-                    error_keywords = [
-                        "bot was blocked by the user",
-                        "403",
-                        "400",
-                        "bad request",
-                        "chat not found",
-                        "file must be non-empty",
-                        "user is deactivated",
-                        "can't initiate conversation",
-                        "forbidden"
-                    ]
-
-                    if any(keyword in error_text for keyword in error_keywords):
+                    logger.info(f"✅ Билет отправлен user_id={user_id} [{idx}/{len(user_ids)}], попытка {attempt}")
+                    time.sleep(random.uniform(3.5, 5.0))
+                    break
+                except Exception as e:
+                    err = str(e).lower()
+                    # 1) если заблокирован бот или 403 — не повторяем
+                    if "403" in err or "bot was blocked" in err:
+                        add_failed_delivery(user_id, ticket_path)
+                        # пользователь заблокировал бота — возвращаем билет в пул
+                        release_ticket(ticket_path)
                         bot.send_message(
                             message.chat.id,
-                            f"❌ При повторной отправке user_id={user_id} возникла критическая ошибка доставки. "
-                            f"Пользователь заблокировал бота или доступ ограничен. "
-                            f"\nОшибка: {error_text}"
+                            f"❌ user_id={user_id} заблокировал бота. Билет возвращён в пул."
+                        )
+                        logger.error(f"Бот заблокирован user_id={user_id}: {e}")
+                        failed_count += 1
+                        failed_this_time.append(user_id)
+                        break
+                    
+                    # 2) проверяем retry-after для 429
+                    m = re.search(r'retry after (\d+)', err)
+                    wait = (int(m.group(1)) + 1) if m else delay
+
+                    # 3) если ещё есть попытки — ждём и удваиваем delay
+                    if attempt < max_retries:
+                        logger.warning(f"Попытка {attempt} не удалась для user_id={user_id}: {e}. Ждём {wait} сек.")
+                        time.sleep(wait)
+                        delay *= 2
+                        continue
+                    
+                    # 4) все попытки исчерпаны — решаем по наличию файла
+                    if not os.path.isfile(ticket_path):
+                        add_failed_delivery(user_id, ticket_path)
+                        mark_ticket_lost(ticket_path)
+                        bot.send_message(
+                            message.chat.id,
+                            f"❌ Файл не найден: {ticket_path}. Билет помечен LOST."
                         )
                     else:
+                        add_failed_delivery(user_id, ticket_path)
+                        release_ticket(ticket_path)
                         bot.send_message(
                             message.chat.id,
-                            f"❌ Ошибка при повторной отправке user_id={user_id}: {e2}"
+                            f"❌ Не удалось доставить ticket для user_id={user_id} после {max_retries} попыток. Билет возвращён в пул."
                         )
-                    logger.error(f"Ошибка отправки для user_id={user_id}: {e2}", exc_info=True)
-                    failed_this_time.append(user_id)
-                    continue
-
-            time.sleep(5)
+                    
+            # — после цикла, если не break, loop пойдет дальше
 
         total_time = int(time.time() - start_time)
         pending_after = get_all_failed_deliveries()
@@ -174,71 +198,168 @@ def register_mass_send_handler(bot):
         bot.send_message(message.chat.id, result_msg)
         logger.info(result_msg)
 
-        # --- Автоматическая повторная рассылка ---
+        # --- Автоматическая повторная рассылка с 3 попытками и экспоненциальным бэкоффом ---
         if pending_count > 0:
-            bot.send_message(message.chat.id, "♻️ Пробую автоматически отправить недоставленные билеты...")
-            retry_sent = 0
-            retry_failed = 0
+            bot.send_message(message.chat.id, "♻️ Авторассылка недоставленных билетов...")
+            retry_sent = retry_failed = 0
             start_time_retry = time.time()
+
             for user_id, ticket_path in get_all_failed_deliveries():
+                # Если файл полностью отсутствует — помечаем как LOST и пропускаем
                 if not os.path.isfile(ticket_path):
+                    release_ticket(ticket_path)
+                    mark_ticket_lost(ticket_path)
+                    add_failed_delivery(user_id, ticket_path)
+                    bot.send_message(message.chat.id,
+                        f"❌ Файл не найден: {ticket_path}. Билет помечен LOST для user_id={user_id}."
+                    )
+                    logger.error(f"[AUTO-RETRY] Файл не найден: {ticket_path} для user_id={user_id}")
                     retry_failed += 1
-                    err_msg = f"Файл билета не найден: {ticket_path}. Пропускаем пользователя {user_id}."
-                    bot.send_message(message.chat.id, err_msg)
-                    logger.error(err_msg)
                     continue
 
-                try:
-                    with open(ticket_path, 'rb') as pdf:
-                        try_send_with_telegram_limit(bot.send_document, user_id, pdf)
-                    assign_ticket(ticket_path, user_id)
-                    remove_failed_delivery(user_id)
-                    retry_sent += 1
-                    logger.info(f"[AUTO-RETRY] Билет отправлен user_id={user_id}")
-                except Exception as e:
-                    retry_failed += 1
-                    error_text = str(e).lower()
-
-                    error_keywords = [
-                        "bot was blocked by the user",
-                        "403",
-                        "400",
-                        "bad request",
-                        "chat not found",
-                        "file must be non-empty",
-                        "user is deactivated",
-                        "can't initiate conversation",
-                        "forbidden"
-                    ]
-
-                    if any(keyword in error_text for keyword in error_keywords):
-                        bot.send_message(
-                            message.chat.id,
-                            f"❌ При автоотправке user_id={user_id} возникла критическая ошибка доставки. "
-                            f"Пользователь заблокировал бота или доступ ограничен. "
-                            f"\nОшибка: {error_text}"
-                        )
-                    else:
-                        bot.send_message(
-                            message.chat.id,
-                            f"[AUTO-RETRY] Ошибка при отправке для user_id={user_id}: {e}"
-                        )
-                    logger.error(f"[AUTO-RETRY] Ошибка для user_id={user_id}: {e}", exc_info=True)
-                    continue
+                # Пытаемся отправить до 3 раз
+                max_retries = 3
+                delay = 5
+                sent = False
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        with open(ticket_path, 'rb') as pdf:
+                            try_send_with_telegram_limit(bot.send_document, user_id, pdf)
+                        assign_ticket(ticket_path, user_id)
+                        remove_failed_delivery(user_id)
+                        retry_sent += 1
+                        logger.info(f"[AUTO-RETRY] Успешно для user_id={user_id}, попытка {attempt}")
+                        sent = True
+                        break
+                    except Exception as e:
+                        err = str(e).lower()
+                        # Критические ошибки — сразу помечаем LOST
+                        
+                        if any(k in err for k in ["403", "bot was blocked"]):
+                            add_failed_delivery(user_id, ticket_path)
+                            release_ticket(ticket_path)
+                            bot.send_message(
+                                message.chat.id,
+                                f"❌ user_id={user_id} заблокировал бота. Билет возвращён в пул."
+                            )
+                            logger.error(f"[AUTO-RETRY] Критическая ошибка для {user_id}: {e}")
+                            retry_failed += 1
+                            sent = True
+                            break
+                        # Обработка 429 Retry-After
+                        m = re.search(r"retry after (\d+)", err)
+                        wait = (int(m.group(1)) + 1) if m else delay
+                        if attempt < max_retries:
+                            logger.warning(f"[AUTO-RETRY] Попытка {attempt} не удалась для {user_id}: {e}. Ждём {wait}s.")
+                            time.sleep(wait)
+                            delay *= 2
+                            continue
+                        # Все попытки исчерпаны
+                        if not os.path.isfile(ticket_path):
+                            release_ticket(ticket_path)
+                            mark_ticket_lost(ticket_path)
+                            add_failed_delivery(user_id, ticket_path)
+                            bot.send_message(
+                                message.chat.id,
+                                f"❌ Файл не найден: {ticket_path}. Билет помечен LOST."
+                            )
+                        else:
+                            add_failed_delivery(user_id, ticket_path)
+                            release_ticket(ticket_path)
+                            bot.send_message(
+                                message.chat.id,
+                                f"❌ Не удалось доставить ticket для user_id={user_id}. Билет возвращён в пул."
+                            )
+                    
+                        logger.error(f"[AUTO-RETRY] Потерян билет {ticket_path} для {user_id}")
+                        retry_failed += 1
+                # конец цикла попыток
 
                 time.sleep(5)
 
-
             total_time_retry = int(time.time() - start_time_retry)
             pending_after_retry = get_all_failed_deliveries()
-            bot.send_message(
-                message.chat.id,
-                f"♻️ Автоматическая повторная рассылка завершена!\n"
-                f"Дополнительно отправлено: {retry_sent}\n"
-                f"Ошибок при повторе: {retry_failed}\n"
-                f"Ожидают доставки после автоповтора: {len(pending_after_retry)}\n"
-                f"Время автоповтора: {total_time_retry} сек."
+            bot.send_message(message.chat.id,
+                f"♻️ Авторассылка завершена!\n"
+                f"Доп. отправлено: {retry_sent}\n"
+                f"Ошибок: {retry_failed}\n"
+                f"Осталось: {len(pending_after_retry)}\n"
+                f"Время: {total_time_retry}s"
             )
-            logger.info(
-                f"Автоматическая повторная рассылка завершена: отправлено={retry_sent}, ошибок={retry_failed}, осталось={len(pending_after_retry)}"
-            )
+            logger.info(f"Авторассылка: sent={retry_sent}, failed={retry_failed}, left={len(pending_after_retry)}")
+
+    @bot.message_handler(commands=['failed_report'])
+    @admin_required(bot)
+    @admin_error_catcher(bot)
+    def handle_failed_report(message):
+        failed = dict(get_all_failed_deliveries())  # {user_id: ticket_path}
+
+        if not failed:
+            bot.send_message(message.chat.id, "✅ Нет пользователей с неудачной доставкой билетов.")
+            return
+
+        import sqlite3
+        import tempfile
+        import xlsxwriter
+        import os
+
+        conn = sqlite3.connect("users.db")
+        cur = conn.cursor()
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            workbook = xlsxwriter.Workbook(tmp.name)
+            worksheet = workbook.add_worksheet("Failed Deliveries")
+
+            worksheet.write_row(0, 0, [
+                "user_id", "username", "ticket_path", "original_name", "статус", "Не доставлено"
+            ])
+
+            for idx, (user_id, ticket_path) in enumerate(failed.items(), 1):
+                cur.execute("SELECT username FROM users WHERE user_id=?", (user_id,))
+                row = cur.fetchone()
+                username = f"@{row[0]}" if row and row[0] else ""
+
+                cur.execute("""
+                    SELECT original_name, lost, archived_unused, assigned_to
+                    FROM tickets
+                    WHERE file_path=?
+                """, (ticket_path,))
+                row = cur.fetchone()
+
+                if row:
+                    original_name, lost, archived, assigned = row
+                    if lost:
+                        status = "Утраченный"
+                    elif archived:
+                        status = "Архивный"
+                    elif assigned:
+                        status = "Выдан"
+                    else:
+                        status = "Активный"
+                else:
+                    original_name = "❓ не найден"
+                    status = "❌ нет данных"
+
+                worksheet.write_row(idx, 0, [
+                    user_id,
+                    username,
+                    ticket_path,
+                    original_name,
+                    status,
+                    "Да"  # раз запись есть в failed_deliveries — значит не доставлено
+                ])
+
+            worksheet.set_column(0, 0, 14)
+            worksheet.set_column(1, 1, 20)
+            worksheet.set_column(2, 2, 60)
+            worksheet.set_column(3, 3, 30)
+            worksheet.set_column(4, 4, 20)
+            worksheet.set_column(5, 5, 18)
+
+            workbook.close()
+
+            doc = open(tmp.name, "rb")
+            bot.send_document(message.chat.id, doc, caption="📄 Отчёт о неудачных доставках билетов")
+            doc.close()
+
+        os.remove(tmp.name)        
