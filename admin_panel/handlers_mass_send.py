@@ -143,12 +143,11 @@ def register_mass_send_handler(bot):
                     if "403" in err or "bot was blocked" in err:
                         add_failed_delivery(user_id, ticket_path)
                         # Освободим этот слот, чтобы билет мог быть использован кем-то ещё, если потребуется
+                        # пользователь заблокировал бота — возвращаем билет в пул
                         release_ticket(ticket_path)
-                        add_failed_delivery(user_id, ticket_path)
-                        mark_ticket_lost(ticket_path)
                         bot.send_message(
                             message.chat.id,
-                            f"❌ Пользователь {user_id} заблокировал бота. Билет помечен как LOST."
+                            f"❌ user_id={user_id} заблокировал бота. Билет возвращён в пул."
                         )
                         logger.error(f"Бот заблокирован user_id={user_id}: {e}")
                         failed_count += 1
@@ -166,16 +165,21 @@ def register_mass_send_handler(bot):
                         delay *= 2
                         continue
                     
-                    # 4) все попытки исчерпаны — помечаем ошибку
-                    add_failed_delivery(user_id, ticket_path)
-                    mark_ticket_lost(ticket_path)
-                    bot.send_message(
-                        message.chat.id,
-                        f"❌ Не удалось отправить билет user_id={user_id} после {max_retries} попыток. Билет помечен LOST."
-                    )
-                    logger.error(f"Потерян билет {ticket_path} для user_id={user_id}")
-                    failed_count += 1
-                    failed_this_time.append(user_id)
+                    # 4) все попытки исчерпаны — решаем по наличию файла
+                    if not os.path.isfile(ticket_path):
+                        add_failed_delivery(user_id, ticket_path)
+                        mark_ticket_lost(ticket_path)
+                        bot.send_message(
+                            message.chat.id,
+                            f"❌ Файл не найден: {ticket_path}. Билет помечен LOST."
+                        )
+                    else:
+                        add_failed_delivery(user_id, ticket_path)
+                        release_ticket(ticket_path)
+                        bot.send_message(
+                            message.chat.id,
+                            f"❌ Не удалось доставить ticket для user_id={user_id} после {max_retries} попыток. Билет возвращён в пул."
+                        )
             # — после цикла, если не break, loop пойдет дальше
 
         total_time = int(time.time() - start_time)
@@ -231,12 +235,13 @@ def register_mass_send_handler(bot):
                     except Exception as e:
                         err = str(e).lower()
                         # Критические ошибки — сразу помечаем LOST
+                        
                         if any(k in err for k in ["403", "bot was blocked"]):
-                            release_ticket(ticket_path)
-                            mark_ticket_lost(ticket_path)
                             add_failed_delivery(user_id, ticket_path)
-                            bot.send_message(message.chat.id,
-                                f"❌ user_id={user_id} заблокировал бота (или 403). Билет LOST."
+                            release_ticket(ticket_path)
+                            bot.send_message(
+                                message.chat.id,
+                                f"❌ user_id={user_id} заблокировал бота. Билет возвращён в пул."
                             )
                             logger.error(f"[AUTO-RETRY] Критическая ошибка для {user_id}: {e}")
                             retry_failed += 1
@@ -251,12 +256,24 @@ def register_mass_send_handler(bot):
                             delay *= 2
                             continue
                         # Все попытки исчерпаны
-                        release_ticket(ticket_path)
-                        mark_ticket_lost(ticket_path)
-                        add_failed_delivery(user_id, ticket_path)
-                        bot.send_message(message.chat.id,
-                            f"❌ Не удалось доставить ticket для user_id={user_id} после {max_retries} попыток. LOST."
-                        )
+
+                        # Все попытки исчерпаны
+                        if not os.path.isfile(ticket_path):
+                            release_ticket(ticket_path)
+                            mark_ticket_lost(ticket_path)
+                            add_failed_delivery(user_id, ticket_path)
+                            bot.send_message(
+                                message.chat.id,
+                                f"❌ Файл не найден: {ticket_path}. Билет помечен LOST."
+                            )
+                        else:
+                            add_failed_delivery(user_id, ticket_path)
+                            release_ticket(ticket_path)
+                            bot.send_message(
+                                message.chat.id,
+                                f"❌ Не удалось доставить ticket для user_id={user_id}. Билет возвращён в пул."
+                            )
+
                         logger.error(f"[AUTO-RETRY] Потерян билет {ticket_path} для {user_id}")
                         retry_failed += 1
                 # конец цикла попыток
