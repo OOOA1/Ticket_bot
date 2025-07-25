@@ -211,26 +211,23 @@ def register_tickets_handlers(bot):
                 return
 
 
-            # Всё ок, принимаем .zip
+            # после всех проверок — принимаем ZIP-файл
             doc = message.document
             if not doc.file_name.endswith('.zip'):
                 bot.reply_to(message, "Пожалуйста, пришлите ZIP-архив (.zip).")
+                upload_waiting[user_id] = False
                 return
-            
+                        
             try:
-                # Скачиваем архив
                 file_info = bot.get_file(doc.file_id)
                 downloaded = bot.download_file(file_info.file_path)
                 zip_path = f"temp_upload_{user_id}.zip"
                 with open(zip_path, 'wb') as f:
                     f.write(downloaded)
-
-                # Обрабатываем в зависимости от режима
+        
                 if mode is True:
-                    # СТАРАЯ ЛОГИКА — архивировать старые, добавить новые
                     report_path = process_zip(zip_path, uploaded_by=user_id, bot=bot)
                 else:
-                    # mode == 'add' — только добавить новые файлы
                     report_path = process_zip_add(zip_path, uploaded_by=user_id, bot=bot)
 
                 # Отправляем отчёт, если он есть
