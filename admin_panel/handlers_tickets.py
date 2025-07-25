@@ -462,17 +462,9 @@ def process_zip_add(zip_path, uploaded_by, bot):
             full_path = os.path.join(DEFAULT_TICKET_FOLDER, uuid_name)
             with open(full_path, "wb") as f:
                 f.write(content)
+            # ВНИМАНИЕ: Больше не трогаем wave_id здесь!
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
-            # Привязываем новый билет к текущей активной волне
-            wave_id = get_current_wave_id()
-            conn = sqlite3.connect("users.db")
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE tickets SET wave_id = ? WHERE file_path = ?",
-                (wave_id, full_path)
-            )
-            conn.commit()
-            conn.close()
+            # wave_id будет назначен позже, после /confirm_wave
             added.append((original_name, uuid_name))
 
     report_lines = [
