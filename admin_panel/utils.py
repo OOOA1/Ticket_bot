@@ -66,8 +66,9 @@ def admin_required(bot):
                         )
                     except Exception:
                         pass
-
+                
                 try:
+                    log_chat(user_id, "BOT", "Нет прав для этой команды.")
                     bot.reply_to(message, "Нет прав для этой команды.")
                 except Exception:
                     pass
@@ -95,3 +96,25 @@ def admin_error_catcher(bot):
                     pass
         return wrapper
     return decorator
+
+def log_chat(user_id: int, role: str, content: str):
+    """
+    Логирует любое сообщение в logs/{user_id}.txt
+    role: 'USER' или 'BOT'
+    content: текст сообщения, имя файла или короткое описание (например, '[DOCUMENT] file.pdf')
+    """
+    from datetime import datetime  # если вызываешь не в начале файла
+    import os
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    folder = "logs"
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"{user_id}.txt")
+    line = f"[{now}] {role.upper()}: {str(content).strip()}\n"
+    print(f"Пробую записать в: {path}")  # Можно убрать после отладки
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as e:
+        print(f"Ошибка логирования в {path}: {e}")  # Можно убрать после отладки
+        logger.error(f"Ошибка логирования в {path}: {e}")

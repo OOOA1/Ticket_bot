@@ -22,3 +22,6 @@ tickets/*.pdf
 admins.txt
 *.xlsx
 *.pdf
+
+# Игнорировать все логи пользователей
+logs/*.txt

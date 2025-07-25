@@ -2,11 +2,45 @@ import telebot
 from config import BOT_TOKEN
 from database import init_db, add_user, get_admins
 from admin_panel import register_admin_handlers
+from admin_panel.utils import log_chat
+from telebot.handler_backends import BaseMiddleware
 import sqlite3
 import time
 import traceback
 
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, use_class_middlewares=True)
+
+class LogChatMiddleware(BaseMiddleware):
+    def __init__(self):
+        super().__init__()
+        self.update_types = ['message']
+
+    def pre_process(self, message, data):
+        user_id = message.from_user.id
+        if message.text:
+            log_chat(user_id, "USER", message.text)
+        elif message.document:
+            log_chat(user_id, "USER", f"[DOCUMENT] {message.document.file_name}")
+        elif message.photo:
+            log_chat(user_id, "USER", "[PHOTO]")
+        elif message.audio:
+            log_chat(user_id, "USER", "[AUDIO]")
+        elif message.video:
+            log_chat(user_id, "USER", "[VIDEO]")
+        elif message.voice:
+            log_chat(user_id, "USER", "[VOICE]")
+        elif message.sticker:
+            log_chat(user_id, "USER", "[STICKER]")
+        else:
+            log_chat(user_id, "USER", "[UNKNOWN TYPE]")
+        return message, data
+
+    def post_process(self, message, data, exception):
+        # Просто пропусти (можно даже pass, если не нужно ничего обрабатывать)
+        pass
+
+bot.setup_middleware(LogChatMiddleware())
+
 
 # Регистрируем админские хендлеры
 register_admin_handlers(bot)
@@ -49,6 +83,7 @@ def handle_start(message):
             message.chat.id,
             "Вы пытаетесь начать общение с ботом без приглашения. Для получения приглоашения свяжитесь с администратором."
         )
+        log_chat(user_id, "BOT", "Вы пытаетесь начать общение с ботом без приглашения. Для получения приглоашения свяжитесь с администратором.")
         return
     invite_code = args[1]
 
@@ -80,6 +115,11 @@ def handle_start(message):
             message.chat.id,
             "Вы уже подписаны на рассылку. Ваше действие заблокировано и админы уведомлены."
         )
+        log_chat(
+            user_id,
+            "BOT",
+            "Вы уже подписаны на рассылку. Ваше действие заблокировано и админы уведомлены."
+        )
         return
 
     # 3) Проверка invite-кода в базе
@@ -91,11 +131,17 @@ def handle_start(message):
             message.chat.id,
             "❗️ Приглашение не найдено. Свяжитесь с администратором."
         )
+        log_chat(user_id, "BOT", "❗️ Приглашение не найдено. Свяжитесь с администратором.")
         return
     if row[0] == 1:
         conn.close()
         bot.send_message(
             message.chat.id,
+            "⛔️ Эта ссылка уже использована. Пожалуйста, Свяжитесь с администратором."
+        )
+        log_chat(
+            user_id,
+            "BOT",
             "⛔️ Эта ссылка уже использована. Пожалуйста, Свяжитесь с администратором."
         )
         return
@@ -116,6 +162,8 @@ def handle_start(message):
         f"Привет, {message.from_user.first_name}! Спасибо, что подписались на рассылку билетов. "
         "Скоро вы получите информацию о доступных матчах⚽."
     )
+    log_chat(user_id, "BOT", f"Привет, {message.from_user.first_name}! Спасибо, что подписались на рассылку билетов. "
+                         "Скоро вы получите информацию о доступных матчах⚽.")
 
 def run_bot():
     print("Бот запущен.")
@@ -123,3 +171,28 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
+@bot.message_handler(content_types=['text', 'document', 'photo', 'audio', 'video', 'voice', 'sticker'])
+def handle_any_message(message):
+    user_id = message.from_user.id
+    # Не логируем админов, если не нужно (по желанию)
+    # from database import get_admins
+    # if user_id in get_admins():
+    #     return
+
+    if message.text:
+        log_chat(user_id, "USER", message.text)
+    elif message.document:
+        log_chat(user_id, "USER", f"[DOCUMENT] {message.document.file_name}")
+    elif message.photo:
+        log_chat(user_id, "USER", "[PHOTO]")
+    elif message.audio:
+        log_chat(user_id, "USER", "[AUDIO]")
+    elif message.video:
+        log_chat(user_id, "USER", "[VIDEO]")
+    elif message.voice:
+        log_chat(user_id, "USER", "[VOICE]")
+    elif message.sticker:
+        log_chat(user_id, "USER", "[STICKER]")
+    else:
+        log_chat(user_id, "USER", "[UNKNOWN TYPE]")

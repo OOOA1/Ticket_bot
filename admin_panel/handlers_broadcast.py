@@ -1,6 +1,7 @@
 import time
-from .utils import admin_error_catcher, load_admins, admin_required
+from .utils import admin_error_catcher, load_admins, admin_required, log_chat
 from database import get_all_user_ids
+import os
 
 def register_broadcast_handlers(bot):
     @bot.message_handler(
@@ -32,6 +33,7 @@ def register_broadcast_handlers(bot):
             for user_id in user_ids:
                 try:
                     bot.send_photo(user_id, media_id, caption=caption)
+                    log_chat(user_id, "BOT", f"[PHOTO]{' ' + caption if caption else ''}")
                     success += 1
                     sent_ids.append(user_id)
                 except Exception as e:
@@ -47,6 +49,7 @@ def register_broadcast_handlers(bot):
             for user_id in user_ids:
                 try:
                     bot.send_animation(user_id, media_id, caption=caption)
+                    log_chat(user_id, "BOT", f"[ANIMATION]{' ' + caption if caption else ''}")
                     success += 1
                     sent_ids.append(user_id)
                 except Exception as e:
@@ -59,9 +62,11 @@ def register_broadcast_handlers(bot):
         # Для документов (pdf, png, jpg как файл и т.д.)
         elif message.content_type == 'document':
             media_id = message.document.file_id
+            file_name = getattr(message.document, 'file_name', 'document')
             for user_id in user_ids:
                 try:
                     bot.send_document(user_id, media_id, caption=caption)
+                    log_chat(user_id, "BOT", f"[DOCUMENT] {file_name}{' ' + caption if caption else ''}")
                     success += 1
                     sent_ids.append(user_id)
                 except Exception as e:
@@ -94,6 +99,7 @@ def register_broadcast_handlers(bot):
             for user_id in user_ids:
                 try:
                     bot.send_message(user_id, caption)
+                    log_chat(user_id, "BOT", caption)
                     success += 1
                     sent_ids.append(user_id)
                 except Exception as e:

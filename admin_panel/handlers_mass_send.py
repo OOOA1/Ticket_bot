@@ -14,8 +14,9 @@ from database import (
     mark_ticket_lost,
     release_ticket,
     clear_user_assignments,
+    resolve_user_id,
 )
-from .utils import load_admins, logger, admin_required, admin_error_catcher
+from .utils import load_admins, logger, admin_required, admin_error_catcher, log_chat
 from datetime import datetime
 import time
 import os
@@ -133,6 +134,7 @@ def register_mass_send_handler(bot):
                         try_send_with_telegram_limit(bot.send_document, user_id, pdf)
                     assign_ticket(ticket_path, user_id)
                     remove_failed_delivery(user_id)
+                    log_chat(user_id, "BOT", f"[DOCUMENT] {os.path.basename(ticket_path)}")
                     sent_count += 1
                     logger.info(f"✅ Билет отправлен user_id={user_id} [{idx}/{len(user_ids)}], попытка {attempt}")
                     time.sleep(random.uniform(3.5, 5.0))
@@ -226,6 +228,7 @@ def register_mass_send_handler(bot):
                             try_send_with_telegram_limit(bot.send_document, user_id, pdf)
                         assign_ticket(ticket_path, user_id)
                         remove_failed_delivery(user_id)
+                        log_chat(user_id, "BOT", f"[DOCUMENT] {os.path.basename(ticket_path)}")
                         retry_sent += 1
                         logger.info(f"[AUTO-RETRY] Успешно для user_id={user_id}, попытка {attempt}")
                         sent = True
@@ -365,3 +368,26 @@ def register_mass_send_handler(bot):
             doc.close()
 
         os.remove(tmp.name)        
+
+    @bot.message_handler(commands=['chatlog'])
+    @admin_required(bot)
+    @admin_error_catcher(bot)
+    def handle_chatlog(message):
+        args = message.text.strip().split()
+        if len(args) != 2:
+            bot.reply_to(message, "Использование: /chatlog user_id или /chatlog @username")
+            return
+
+        user_ref = args[1]
+        user_id = resolve_user_id(user_ref)
+        if not user_id:
+            bot.reply_to(message, "Пользователь не найден.")
+            return
+
+        log_path = os.path.join("logs", f"{user_id}.txt")
+        if not os.path.isfile(log_path):
+            bot.reply_to(message, "Для этого пользователя ещё нет переписки.")
+            return
+
+        with open(log_path, "rb") as f:
+            bot.send_document(message.chat.id, f, caption=f"📄 Переписка с user_id {user_id}")

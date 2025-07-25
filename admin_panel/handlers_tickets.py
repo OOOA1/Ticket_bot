@@ -10,7 +10,7 @@ from datetime import datetime
 from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets, get_current_wave_id
 from .utils import (
     admin_error_catcher, load_admins, upload_waiting, logger, admin_required,
-    upload_files_received, upload_files_time
+    upload_files_received, upload_files_time, log_chat
 )
 import time  # понадобится для таймаута
 from config import DEFAULT_TICKET_FOLDER
@@ -156,7 +156,7 @@ def register_tickets_handlers(bot):
         ADMINS = load_admins()
         user_id = message.from_user.id
 
-        # --- Новое: если вне режима ожидания — молчим, ничего не пишем! ---
+        # --- Безопасная проверка: если вне режима ожидания — молчим! ---
         if user_id not in upload_files_received or not upload_waiting.get(user_id):
             return
 
@@ -190,7 +190,7 @@ def register_tickets_handlers(bot):
             upload_files_time[user_id] = time.time()
         upload_files_received[user_id] = upload_files_received.get(user_id, 0) + 1
 
-        if upload_files_received[user_id] > 1:
+        if upload_files_received.get(user_id, 0) > 1:
             bot.reply_to(message, "❌ Можно прислать только один ZIP-файл.")
             upload_waiting[user_id] = False
             upload_files_received.pop(user_id, None)
@@ -201,8 +201,11 @@ def register_tickets_handlers(bot):
         if elapsed < 2:
             time.sleep(2 - elapsed)
 
-        # Пришла командная утечка — проверяем ещё раз
-        if upload_files_received[user_id] > 1 or not upload_waiting.get(user_id):
+        # --- Повторная защита от KeyError после задержки ---
+        if user_id not in upload_files_received or not upload_waiting.get(user_id):
+            return
+
+        if upload_files_received.get(user_id, 0) > 1 or not upload_waiting.get(user_id):
             return
 
         doc = message.document
@@ -237,6 +240,7 @@ def register_tickets_handlers(bot):
             upload_waiting[user_id] = False
             upload_files_received.pop(user_id, None)
             upload_files_time.pop(user_id, None)
+
 
     @bot.message_handler(commands=['upload_zip_add'])
     @admin_required(bot)
@@ -292,6 +296,7 @@ def register_tickets_handlers(bot):
             with open(ticket_path, "rb") as pdf:
                 bot.send_document(user_id, pdf, caption="🎟 Ваш билет выдан вручную администратором.")
             assign_ticket(ticket_path, user_id)
+            log_chat(user_id, "BOT", f"[DOCUMENT] {os.path.basename(ticket_path)} (ручная выдача)")
             bot.reply_to(message, f"✅ Билет отправлен пользователю {user_ref}.")
             logger.info(f"Админ {message.from_user.id} выдал билет пользователю {user_id} через /force_give.")
         except Exception as e:
