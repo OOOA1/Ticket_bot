@@ -172,81 +172,71 @@ def register_tickets_handlers(bot):
             if state["status"] not in ("awaiting_confirm", "active"):
                 bot.reply_to(
                     message,
-                    "⚠️ Дозагрузка билетов возможна только во время подготовки (/new_wave) "
-                    "или во время активной волны."
+                    "⚠️ Дозагрузка возможна только в подготовке или active."
                 )
                 upload_waiting[user_id] = False
                 return
-        else:  # первичная загрузка
+        else:
             if state["status"] != "awaiting_confirm":
                 bot.reply_to(
                     message,
-                    "⚠️ Первичная загрузка билетов возможна только во время подготовки волны (/new_wave)."
+                    "⚠️ Первичная загрузка только в режиме подготовки."
                 )
                 upload_waiting[user_id] = False
                 return
 
+        # ==== ОБЩАЯ ЛОГИКА ДЛЯ ЗАГРУЗКИ ОДНОГО ZIP ====
+        if upload_files_received.get(user_id, 0) == 0:
+            upload_files_time[user_id] = time.time()
+        upload_files_received[user_id] = upload_files_received.get(user_id, 0) + 1
 
-            if upload_files_received.get(user_id, 0) == 0:
-                upload_files_time[user_id] = time.time()
-            upload_files_received[user_id] = upload_files_received.get(user_id, 0) + 1
+        if upload_files_received[user_id] > 1:
+            bot.reply_to(message, "❌ Можно прислать только один ZIP-файл.")
+            upload_waiting[user_id] = False
+            upload_files_received.pop(user_id, None)
+            upload_files_time.pop(user_id, None)
+            return
 
-            # --- Главная защита: если больше одного файла — только один раз шлём ошибку, дальше молчим ---
-            if upload_files_received[user_id] > 1:
-                bot.reply_to(message, "❌ Ты не можешь прикрепить несколько zip-файлов, пришли только 1!")
-                logger.info(f"User {user_id} пытался отправить больше одного zip-файла — отказано без ошибок.")
-                # Сбросили состояния — больше ничего не делаем!
-                upload_waiting[user_id] = False
-                upload_files_received.pop(user_id, None)
-                upload_files_time.pop(user_id, None)
-                return
+        elapsed = time.time() - upload_files_time[user_id]
+        if elapsed < 2:
+            time.sleep(2 - elapsed)
 
-            time_passed = time.time() - upload_files_time[user_id]
-            if time_passed < 2:
-                time.sleep(2 - time_passed)
-                
-            # После ожидания — финальная проверка!
-            if upload_files_received.get(user_id, 0) > 1 or not upload_waiting.get(user_id):
-                # Ничего не делаем, ошибку уже отправили, состояния сброшены
-                return
+        # Пришла командная утечка — проверяем ещё раз
+        if upload_files_received[user_id] > 1 or not upload_waiting.get(user_id):
+            return
 
+        doc = message.document
+        if not doc.file_name.endswith('.zip'):
+            bot.reply_to(message, "Пожалуйста, пришлите ZIP-архив (.zip).")
+            upload_waiting[user_id] = False
+            upload_files_received.pop(user_id, None)
+            upload_files_time.pop(user_id, None)
+            return
 
-            # после всех проверок — принимаем ZIP-файл
-            doc = message.document
-            if not doc.file_name.endswith('.zip'):
-                bot.reply_to(message, "Пожалуйста, пришлите ZIP-архив (.zip).")
-                upload_waiting[user_id] = False
-                return
-                        
-            try:
-                file_info = bot.get_file(doc.file_id)
-                downloaded = bot.download_file(file_info.file_path)
-                zip_path = f"temp_upload_{user_id}.zip"
-                with open(zip_path, 'wb') as f:
-                    f.write(downloaded)
-        
-                if mode is True:
-                    report_path = process_zip(zip_path, uploaded_by=user_id, bot=bot)
-                else:
-                    report_path = process_zip_add(zip_path, uploaded_by=user_id, bot=bot)
+        try:
+            file_info = bot.get_file(doc.file_id)
+            data = bot.download_file(file_info.file_path)
+            zip_path = f"temp_upload_{user_id}.zip"
+            with open(zip_path, 'wb') as f:
+                f.write(data)
 
-                # Отправляем отчёт, если он есть
-                if report_path:
-                    with open(report_path, 'rb') as rep:
-                        bot.send_document(message.chat.id, rep, caption="📄 Отчёт о загрузке билетов")
-                    os.remove(report_path)
+            if mode is True:
+                report_path = process_zip(zip_path, uploaded_by=user_id, bot=bot)
+            else:
+                report_path = process_zip_add(zip_path, uploaded_by=user_id, bot=bot)
 
-                # Удаляем сам ZIP
-                os.remove(zip_path)
-
-            except Exception as e:
-                bot.send_message(message.chat.id, "❗️ Ошибка при обработке архива.")
-                logger.error(f"Ошибка при обработке архива для user_id={user_id}: {e}", exc_info=True)
-            finally:
-
-                upload_waiting[user_id] = False
-                upload_files_received.pop(user_id, None)
-                upload_files_time.pop(user_id, None)
+            if report_path:
+                with open(report_path, 'rb') as rep:
+                    bot.send_document(message.chat.id, rep, caption="📄 Отчёт")
+                os.remove(report_path)
+            os.remove(zip_path)
+        except Exception as e:
+            bot.send_message(message.chat.id, "❗️ Ошибка при обработке архива.")
+            logger.error(f"Ошибка архива для {user_id}: {e}", exc_info=True)
+        finally:
+            upload_waiting[user_id] = False
+            upload_files_received.pop(user_id, None)
+            upload_files_time.pop(user_id, None)
 
     @bot.message_handler(commands=['upload_zip_add'])
     @admin_required(bot)

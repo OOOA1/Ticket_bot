@@ -125,7 +125,7 @@ def register_wave_handlers(bot):
             )
             if lost_count > 0:
                 msg += f"⚠️ Также обнаружено {lost_count} утраченных билетов.\n"
-            msg += "Для загрузки билетов используйте /upload_zip"
+            msg += "Для загрузки билетов используйте /upload_zip_add"
             bot.send_message(message.chat.id, msg)
             conn.close()
             return
