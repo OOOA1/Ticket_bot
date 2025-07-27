@@ -5,8 +5,6 @@ from admin_panel import register_admin_handlers
 from admin_panel.utils import log_chat
 from telebot.handler_backends import BaseMiddleware
 import sqlite3
-import time
-import traceback
 
 bot = telebot.TeleBot(BOT_TOKEN, use_class_middlewares=True)
 
@@ -36,7 +34,7 @@ class LogChatMiddleware(BaseMiddleware):
         return message, data
 
     def post_process(self, message, data, exception):
-        # Просто пропусти (можно даже pass, если не нужно ничего обрабатывать)
+        # Пропуск
         pass
 
 bot.setup_middleware(LogChatMiddleware())
@@ -75,7 +73,6 @@ def handle_start(message):
             except Exception:
                 pass
         return
-    # ---------- END ПРОВЕРКА USERNAME ----------
 
     # 1) Без INVITE_CODE или неправильный формат
     if len(args) < 2 or not args[1].startswith("inv_"):
@@ -93,7 +90,7 @@ def handle_start(message):
     # 2) Проверка, подписан ли уже пользователь
     cur.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
     if cur.fetchone():
-        # Пользователь пытается активировать второй код: "сжечь" invite и уведомить админов
+        # Пользователь пытается активировать второй код: сжечь invite и уведомить администраторов
         cur.execute(
             "UPDATE invite_codes SET is_used = 1 WHERE invite_code = ?",
             (invite_code,)
@@ -109,7 +106,7 @@ def handle_start(message):
                     f"⚠️ Пользователь {user_id} попытался активировать второй инвайт-код {invite_code}. Код заблокирован."
                 )
             except Exception:
-                pass  # если какой-то админ заблокировал бота
+                pass  # если какой-то администратор заблокировал бота
 
         bot.send_message(
             message.chat.id,
@@ -175,10 +172,6 @@ if __name__ == "__main__":
 @bot.message_handler(content_types=['text', 'document', 'photo', 'audio', 'video', 'voice', 'sticker'])
 def handle_any_message(message):
     user_id = message.from_user.id
-    # Не логируем админов, если не нужно (по желанию)
-    # from database import get_admins
-    # if user_id in get_admins():
-    #     return
 
     if message.text:
         log_chat(user_id, "USER", message.text)

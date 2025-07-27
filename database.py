@@ -1,7 +1,6 @@
 import sqlite3
 from datetime import datetime
 from uuid import uuid4
-import hashlib
 import os
 from config import FOUNDER_IDS
 
@@ -43,7 +42,7 @@ def get_all_failed_deliveries():
     cur.execute("SELECT user_id, ticket_path FROM failed_deliveries")
     rows = cur.fetchall()
     conn.close()
-    return rows  # [(user_id, ticket_path), ...]
+    return rows
 
 def clear_failed_deliveries():
     conn = sqlite3.connect(DB_PATH)
@@ -124,12 +123,8 @@ def delete_user_everywhere(user_id: int, username: str) -> bool:
     # Удаление из failed_deliveries
     cur.execute("DELETE FROM failed_deliveries WHERE user_id = ?", (user_id,))
 
-    # --- Новый блок: удаление из tickets ---
     # Сбросить assigned_to для всех билетов пользователя
     cur.execute("UPDATE tickets SET assigned_to = NULL, assigned_at = NULL WHERE assigned_to = ?", (user_id,))
-
-    # Если хочешь убрать билеты, загруженные этим пользователем (uploaded_by):
-    # cur.execute("DELETE FROM tickets WHERE uploaded_by = ?", (user_id,))
 
     changes = conn.total_changes
     conn.commit()
@@ -161,10 +156,8 @@ def get_user_id_by_username(username):
     return row[0] if row else None
 
 def resolve_user_id(user_ref):
-    """
-    Возвращает user_id по username (с @) или по числу (user_id).
-    Если ничего не найдено — возвращает None.
-    """
+    # Возвращает user_id по username (с @) или по числу (user_id). Если ничего не найдено — возвращает None.
+
     if isinstance(user_ref, int) or (isinstance(user_ref, str) and user_ref.isdigit()):
         return int(user_ref)
     username = user_ref
@@ -283,10 +276,8 @@ def archive_missing_tickets():
     return lost_count
 
 def archive_all_old_free_tickets():
-    """
-    Отмечает как archived_unused=1 все невыданные билеты (assigned_to IS NULL),
-    lost=0, archived_unused=0, и файл на месте.
-    """
+    # Отмечает как archived_unused=1 все невыданные билеты (assigned_to IS NULL), lost=0, archived_unused=0, и файл на месте.
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND archived_unused=0 AND lost=0")
@@ -297,10 +288,8 @@ def archive_all_old_free_tickets():
     conn.close()
 
 def release_ticket(ticket_path):
-    """
-    Освободить один билет: сбросить assigned_to и assigned_at,
-    чтобы он стал вновь доступным.
-    """
+    # Освободить один билет: сбросить assigned_to и assigned_at, чтобы он стал вновь доступным.
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -311,10 +300,8 @@ def release_ticket(ticket_path):
     conn.close()
 
 def clear_user_assignments(user_id, exclude_path=None):
-    """
-    Снять все назначения билетов у пользователя (optionally, кроме одного).
-    Это предотвращает ситуацию, когда у одного user_id «висят» несколько билетов.
-    """
+    # Снять все назначения билетов у пользователя (optionally, кроме одного). Это предотвращает ситуацию, когда у одного user_id «висят» несколько билетов.
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     if exclude_path:
@@ -428,7 +415,8 @@ def init_admins_table():
     conn.close()
 
 def add_admin(user_id: int):
-    """Добавить user_id в таблицу admins (игнорировать, если уже есть)."""
+    # Добавить user_id в таблицу admins (игнорировать, если уже есть).
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
@@ -436,7 +424,8 @@ def add_admin(user_id: int):
     conn.close()
 
 def remove_admin(user_id: int):
-    """Удалить user_id из таблицы admins."""
+    # Удалить user_id из таблицы admins.
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
@@ -444,7 +433,8 @@ def remove_admin(user_id: int):
     conn.close()
 
 def get_admins() -> list[int]:
-    """Вернуть список всех user_id из таблицы admins."""
+    # Вернуть список всех user_id из таблицы admins.
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT user_id FROM admins")
@@ -453,9 +443,8 @@ def get_admins() -> list[int]:
     return admins
 
 def is_admin(user_id: int) -> bool:
-    """
-    Проверяет, является ли пользователь админом (по user_id).
-    """
+    # Проверяет, является ли пользователь админом (по user_id).
+    
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT 1 FROM admins WHERE user_id = ?", (user_id,))

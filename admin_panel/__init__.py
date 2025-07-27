@@ -7,9 +7,8 @@ from .handlers_mass_send import register_mass_send_handler
 from .handlers_help import register_help_handlers
 
 def register_admin_handlers(bot):
-    """
-    Регистрирует все админские хендлеры для бота.
-    """
+    # Регистрирует все админские хендлеры для бота.
+    
     register_wave_handlers(bot)
     register_tickets_handlers(bot)
     register_admins_handlers(bot)

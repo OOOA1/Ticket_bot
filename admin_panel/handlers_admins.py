@@ -1,5 +1,5 @@
 from telebot import types
-from .utils import admin_error_catcher, admin_required    # теперь обёртка ошибок берётся из utils
+from .utils import admin_error_catcher, admin_required
 from database import (
     add_admin,
     remove_admin,

@@ -5,6 +5,7 @@ import xlsxwriter
 from zipfile import ZipFile
 import shutil
 import hashlib
+import time
 from uuid import uuid4
 from datetime import datetime
 from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets, get_current_wave_id
@@ -12,7 +13,6 @@ from .utils import (
     admin_error_catcher, load_admins, upload_waiting, logger, admin_required,
     upload_files_received, upload_files_time, log_chat
 )
-import time  # понадобится для таймаута
 from config import DEFAULT_TICKET_FOLDER
 from database import (
     get_free_ticket_count,
@@ -156,7 +156,7 @@ def register_tickets_handlers(bot):
         ADMINS = load_admins()
         user_id = message.from_user.id
 
-        # --- Безопасная проверка: если вне режима ожидания — молчим! ---
+        # Безопасная проверка: если вне режима ожидания — молчим
         if user_id not in upload_files_received or not upload_waiting.get(user_id):
             return
 
@@ -185,7 +185,7 @@ def register_tickets_handlers(bot):
                 upload_waiting[user_id] = False
                 return
 
-        # ==== ОБЩАЯ ЛОГИКА ДЛЯ ЗАГРУЗКИ ОДНОГО ZIP ====
+        # ОБЩАЯ ЛОГИКА ДЛЯ ЗАГРУЗКИ ОДНОГО ZIP
         if upload_files_received.get(user_id, 0) == 0:
             upload_files_time[user_id] = time.time()
         upload_files_received[user_id] = upload_files_received.get(user_id, 0) + 1
@@ -201,7 +201,7 @@ def register_tickets_handlers(bot):
         if elapsed < 2:
             time.sleep(2 - elapsed)
 
-        # --- Повторная защита от KeyError после задержки ---
+        # Повторная защита от KeyError после задержки
         if user_id not in upload_files_received or not upload_waiting.get(user_id):
             return
 
@@ -305,7 +305,7 @@ def register_tickets_handlers(bot):
 
 
 
-# ==== Вспомогательные функции, используются только внутри tickets ====
+# Вспомогательные функции, используются только внутри tickets
 
 def archive_old_tickets():
     # 1) Находим все PDF в папке
@@ -342,7 +342,7 @@ def archive_old_tickets():
     # 5) Удаляем временную папку
     shutil.rmtree(temp_folder)
 
-    # 6) RETENTION — оставляем только 3 последних архива
+    # 6) Оставляем только 3 последних архива
     max_archives = 3
     archives = sorted(
         f for f in os.listdir(archive_dir)
@@ -415,10 +415,10 @@ def process_zip(zip_path, uploaded_by, bot):
             with open(full_path, "wb") as f:
                 f.write(content)
 
-             # 🟢 Вставляем запись о новом билете
+             # Вставляем запись о новом билете
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
 
-             # 🟢 Привязываем билет к текущей волне сразу при первичной загрузке
+             # Привязываем билет к текущей волне сразу при первичной загрузке
             wave_id = get_current_wave_id()
             if wave_id is not None:
                 conn = sqlite3.connect(DB_PATH)

@@ -9,7 +9,7 @@ LOG_FILE = "bot_errors.log"
 upload_waiting = {}
 awaiting_invite_count = {}
 
-# --- Новое: состояния загрузки файлов ---
+# Новое: состояния загрузки файлов
 upload_files_received = {}   # сколько файлов прислал каждый админ после upload-команды
 upload_files_time = {}       # время первого файла (для таймаута)
 upload_files_buffer = {}     # сами документы, если нужно буферизовать их (опционально)
@@ -74,7 +74,7 @@ def admin_required(bot):
                     pass
                 return
             else:
-                # Вообще не авторизован — просто молчим!
+                # Вообще не авторизован — просто молчим
                 return
         return wrapper
     return decorator
@@ -111,10 +111,8 @@ def log_chat(user_id: int, role: str, content: str):
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{user_id}.txt")
     line = f"[{now}] {role.upper()}: {str(content).strip()}\n"
-    print(f"Пробую записать в: {path}")  # Можно убрать после отладки
     try:
         with open(path, "a", encoding="utf-8") as f:
             f.write(line)
     except Exception as e:
-        print(f"Ошибка логирования в {path}: {e}")  # Можно убрать после отладки
         logger.error(f"Ошибка логирования в {path}: {e}")

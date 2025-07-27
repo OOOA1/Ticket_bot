@@ -1,7 +1,6 @@
 import time
 from .utils import admin_error_catcher, load_admins, admin_required, log_chat
 from database import get_all_user_ids
-import os
 
 def register_broadcast_handlers(bot):
     @bot.message_handler(
@@ -109,7 +108,7 @@ def register_broadcast_handlers(bot):
                 time.sleep(0.04)
             bot.reply_to(message, f"💬 Текстовая рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
 
-        # Для особо внимательных админов — вывод итоговых id в консоль (отладка)
+        # Вывод итоговых id в консоль (отладка)
         print(f"===[РАССЫЛКА /broadcast]===")
         print(f"Отправлено {success} из {len(user_ids)}")
         print(f"Ошибки были для id: {failed_ids}")

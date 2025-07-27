@@ -1,3 +1,11 @@
+import time
+import os
+import re
+import random
+import sqlite3
+import tempfile
+import xlsxwriter
+
 from database import (
     get_all_user_ids,
     get_user_last_ticket_time,
@@ -18,10 +26,6 @@ from database import (
 )
 from .utils import load_admins, logger, admin_required, admin_error_catcher, log_chat
 from datetime import datetime
-import time
-import os
-import re
-import random
 
 # === Telegram 429 обработка ===
 def try_send_with_telegram_limit(send_func, *args, **kwargs):
@@ -105,7 +109,7 @@ def register_mass_send_handler(bot):
                 add_failed_delivery(user_id, ticket_path)
 
             if not os.path.isfile(ticket_path):
-                # === Шаг 1: файл не найден – регистрируем неудачную доставку и уведомляем админов ===
+                # Шаг 1: файл не найден – регистрируем неудачную доставку и уведомляем админов
                         add_failed_delivery(user_id, ticket_path)
                         for admin_id in get_admins():
                             try:
@@ -181,7 +185,7 @@ def register_mass_send_handler(bot):
                             f"❌ Не удалось доставить ticket для user_id={user_id} после {max_retries} попыток. Билет возвращён в пул."
                         )
                     
-            # — после цикла, если не break, loop пойдет дальше
+            # после цикла, если не break, loop пойдет дальше
 
         total_time = int(time.time() - start_time)
         pending_after = get_all_failed_deliveries()
@@ -199,7 +203,7 @@ def register_mass_send_handler(bot):
         bot.send_message(message.chat.id, result_msg)
         logger.info(result_msg)
 
-        # --- Автоматическая повторная рассылка с 3 попытками и экспоненциальным бэкоффом ---
+        # Автоматическая повторная рассылка с 3 попытками и экспоненциальным бэкоффом
         if pending_count > 0:
             bot.send_message(message.chat.id, "♻️ Авторассылка недоставленных билетов...")
             retry_sent = retry_failed = 0
@@ -275,11 +279,7 @@ def register_mass_send_handler(bot):
                     
                         logger.error(f"[AUTO-RETRY] Потерян билет {ticket_path} для {user_id}")
                         retry_failed += 1
-                # конец цикла попыток
-
-                        logger.error(f"[AUTO-RETRY] Потерян билет {ticket_path} для {user_id}")
-                        retry_failed += 1
-                # конец цикла попыток
+                        # конец цикла попыток
                 time.sleep(5)
 
             total_time_retry = int(time.time() - start_time_retry)
@@ -302,11 +302,6 @@ def register_mass_send_handler(bot):
         if not failed:
             bot.send_message(message.chat.id, "✅ Нет пользователей с неудачной доставкой билетов.")
             return
-
-        import sqlite3
-        import tempfile
-        import xlsxwriter
-        import os
 
         conn = sqlite3.connect("users.db")
         cur = conn.cursor()

@@ -7,10 +7,6 @@ from database import (
     get_all_user_ids,
     archive_missing_tickets,
     clear_failed_deliveries,
-    get_stats_statuses,
-    get_wave_count,
-    get_latest_wave,
-    get_all_failed_deliveries,
     set_wave_state,
     get_wave_state,
     get_admins,
@@ -63,7 +59,7 @@ def register_wave_handlers(bot):
                 )
                 return
 
-        # ✅ Всё чисто — запускаем новую волну
+        # Всё чисто — запускаем новую волну
 
         lost_count = archive_missing_tickets()
         archive_all_old_free_tickets()
@@ -168,9 +164,9 @@ def register_wave_handlers(bot):
             bot.send_message(message.chat.id, "⚠️ Сейчас нет активной или подготовленной волны.")
             return
 
-        # === Если волна НЕ была подтверждена — удаляем «сирот» и сбрасываем в одном шаге ===
+        # Если волна НЕ была подтверждена — удаляем «сирот» и сбрасываем в одном шаге 
         if status == "awaiting_confirm":
-            # 1) Собираем «сиротские» билеты
+            # 1) Собираем сиротские билеты
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             cur.execute("""
@@ -203,7 +199,7 @@ def register_wave_handlers(bot):
                 except OSError:
                     pass
 
-            # 4) Архивируем пропавшие (опционально)
+            # 4) Архивируем пропавшие
             lost_count = archive_missing_tickets()
 
             # 5) Сброс состояния волны
@@ -220,7 +216,7 @@ def register_wave_handlers(bot):
             bot.send_message(message.chat.id, msg)
             return
 
-        # === Если волна была подтверждена и активна ===
+        # Если волна была подтверждена и активна 
         # 1) Архивируем пропавшие билеты
         lost_count = archive_missing_tickets()
 
@@ -266,7 +262,7 @@ def register_wave_handlers(bot):
 
         conn.close()
 
-        # Пользователей (не админы)
+        # Пользователей (не админов)
         all_users = get_all_user_ids()
         admins_set = set(get_admins())
         user_count = len([u for u in all_users if u not in admins_set])

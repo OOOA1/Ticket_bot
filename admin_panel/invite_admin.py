@@ -1,11 +1,10 @@
 import sqlite3
 import secrets
 import tempfile
-import os
 import xlsxwriter
 from config import BOT_USERNAME
+from database import DB_PATH as DB_FILE
 
-DB_FILE = "users.db"
 
 def generate_invites(count):
     codes = set()
@@ -53,7 +52,7 @@ def export_invites_xlsx(codes):
             worksheet.write(idx, 0, code)
             worksheet.write(idx, 1, link)
 
-        # Автоширина (достаточно большая для ссылок)
+        # Автоширина
         worksheet.set_column(0, 0, 22)
         worksheet.set_column(1, 1, 60)
 
