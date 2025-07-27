@@ -3,9 +3,9 @@ import secrets
 import tempfile
 import os
 import xlsxwriter
+from config import BOT_USERNAME
 
 DB_FILE = "users.db"
-BOT_USERNAME = "Tlcket_Bot"  # без @
 
 def generate_invites(count):
     codes = set()

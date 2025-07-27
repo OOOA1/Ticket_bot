@@ -1,7 +1,6 @@
 import sqlite3
-
+import os
 from datetime import datetime
-
 from .utils import admin_error_catcher, load_admins, admin_required
 from database import (
     create_new_wave,
@@ -19,7 +18,6 @@ from database import (
     archive_all_old_free_tickets,
     DB_PATH,
 )
-from database import DB_PATH
 
 def register_wave_handlers(bot):
     @bot.message_handler(commands=['new_wave'])
@@ -165,67 +163,123 @@ def register_wave_handlers(bot):
             return
 
         state = get_wave_state()
-        if state["status"] == "idle":
+        status = state["status"]
+        if status == "idle":
             bot.send_message(message.chat.id, "⚠️ Сейчас нет активной или подготовленной волны.")
             return
 
-        # 🧹 Чистим потерянные файлы (опционально)
+        # === Если волна НЕ была подтверждена — удаляем «сирот» и сбрасываем в одном шаге ===
+        if status == "awaiting_confirm":
+            # 1) Собираем «сиротские» билеты
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT file_path FROM tickets
+                WHERE wave_id IS NULL
+                AND assigned_to IS NULL
+                AND archived_unused = 0
+                AND lost = 0
+            """)
+            orphans = [row[0] for row in cur.fetchall()]
+
+            # 2) Удаляем их из БД
+            if orphans:
+                cur.execute("""
+                    DELETE FROM tickets
+                    WHERE wave_id IS NULL
+                    AND assigned_to IS NULL
+                    AND archived_unused = 0
+                    AND lost = 0
+                """)
+                conn.commit()
+            conn.close()
+
+            # 3) Стираем файлы
+            removed = 0
+            for path in orphans:
+                try:
+                    os.remove(path)
+                    removed += 1
+                except OSError:
+                    pass
+
+            # 4) Архивируем пропавшие (опционально)
+            lost_count = archive_missing_tickets()
+
+            # 5) Сброс состояния волны
+            set_wave_state("idle", prepared_at=None, wave_start=None)
+
+            # 6) Единственное финальное сообщение
+            msg = (
+                f"❌ Волна не была подтверждена — статистика не собрана.\n"
+                f"Удалено «сиротских» билетов: {removed}.\n\n"
+                "✅ Волна сброшена. Теперь можно запустить новую: /new_wave"
+            )
+            if lost_count > 0:
+                msg += f"\n⚠️ Также помечено утраченных файлов: {lost_count}."
+            bot.send_message(message.chat.id, msg)
+            return
+
+        # === Если волна была подтверждена и активна ===
+        # 1) Архивируем пропавшие билеты
         lost_count = archive_missing_tickets()
 
-        # 🧼 Сброс состояния
+        # 2) Сброс состояния
         set_wave_state("idle", prepared_at=None, wave_start=None)
 
-        msg = "✅ Волна сброшена.\nТеперь вы можете запустить новую с помощью /new_wave."
+        # 3) Сообщение об успешном завершении
+        msg = "✅ Волна завершена и сброшена. Теперь можно: /new_wave"
         if lost_count > 0:
-            msg += f"\n⚠️ Также обнаружено {lost_count} утраченных билетов."
-
+            msg += f"\n⚠️ Помечено утраченных файлов: {lost_count}."
         bot.send_message(message.chat.id, msg)
 
-        state = get_wave_state()
-        wave_status = state["status"]
-        wave_id = get_current_wave_id()
-
+        # 4) Показать статистику по только что завершённой волне
+        wave_id = get_current_wave_id()  # вероятно None сразу после сброса
         if not wave_id:
             bot.send_message(message.chat.id, "📊 Статистика недоступна: волна не запущена.")
             return
 
-        import sqlite3
-        conn = sqlite3.connect("users.db")
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
 
-        # Все билеты в этой волне
-        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=?", (wave_id,))
+        # Всего в этой волне
+        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id = ?", (wave_id,))
         total_tickets = cur.fetchone()[0]
 
-        # Свободные (невыданные)
-        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=? AND assigned_to IS NULL AND archived_unused=0 AND lost=0", (wave_id,))
+        # Свободные
+        cur.execute("""
+            SELECT COUNT(*) FROM tickets
+            WHERE wave_id = ? AND assigned_to IS NULL AND archived_unused = 0 AND lost = 0
+        """, (wave_id,))
         free_tickets = cur.fetchone()[0]
 
         # Выданные
-        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=? AND assigned_to IS NOT NULL AND lost=0", (wave_id,))
+        cur.execute("""
+            SELECT COUNT(*) FROM tickets
+            WHERE wave_id = ? AND assigned_to IS NOT NULL AND lost = 0
+        """, (wave_id,))
         issued_tickets = cur.fetchone()[0]
 
         # Утраченные
-        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id=? AND lost=1", (wave_id,))
+        cur.execute("SELECT COUNT(*) FROM tickets WHERE wave_id = ? AND lost = 1", (wave_id,))
         lost_tickets = cur.fetchone()[0]
-
-        # Пользователи (не админы)
-        all_users = get_all_user_ids()
-        admins = set(get_admins())
-        user_count = len([uid for uid in all_users if uid not in admins])
 
         conn.close()
 
-        msg = (
-            f"<b>📊 Статистика текущей волны (ID {wave_id}):</b>\n\n"
-            f"🔄 Статус волны: <code>{wave_status}</code>\n"
+        # Пользователей (не админы)
+        all_users = get_all_user_ids()
+        admins_set = set(get_admins())
+        user_count = len([u for u in all_users if u not in admins_set])
+
+        stats_msg = (
+            f"<b>📊 Статистика прошлой волны (ID {wave_id}):</b>\n\n"
             f"👥 Пользователей: <b>{user_count}</b>\n"
-            f"🎟 Всего билетов в волне: <b>{total_tickets}</b>\n"
+            f"🎟 Всего билетов: <b>{total_tickets}</b>\n"
             f"📬 Выдано: <b>{issued_tickets}</b>\n"
             f"📦 Свободных: <b>{free_tickets}</b>\n"
             f"❌ Утраченных: <b>{lost_tickets}</b>\n"
         )
-        bot.send_message(message.chat.id, msg, parse_mode="HTML")
+        bot.send_message(message.chat.id, stats_msg, parse_mode="HTML")
 
    
     @bot.message_handler(commands=['stats'])

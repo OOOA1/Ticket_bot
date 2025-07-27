@@ -3,10 +3,10 @@ from datetime import datetime
 from uuid import uuid4
 import hashlib
 import os
+from config import FOUNDER_IDS
 
 
 DB_PATH = "users.db"
-FOUNDER_IDS = [5477727657]
 
 def init_failed_deliveries_table():
     conn = sqlite3.connect(DB_PATH)

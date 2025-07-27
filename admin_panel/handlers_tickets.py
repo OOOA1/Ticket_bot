@@ -408,15 +408,33 @@ def process_zip(zip_path, uploaded_by, bot):
         logger.info(f"Архив старых билетов создан: {archive_result}")
 
     # 4) Сохраняем новые файлы и вносим запись в БД
+    
     for content, file_hash, original_name, full_path, uuid_name in temp_store:
         try:
+            # Сохраняем файл на диск
             with open(full_path, "wb") as f:
                 f.write(content)
+
+             # 🟢 Вставляем запись о новом билете
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
+
+             # 🟢 Привязываем билет к текущей волне сразу при первичной загрузке
+            wave_id = get_current_wave_id()
+            if wave_id is not None:
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE tickets SET wave_id = ? WHERE file_path = ?",
+                    (wave_id, full_path)
+                )
+                conn.commit()
+                conn.close()
+
+             # Фиксируем успех
             added.append((original_name, uuid_name))
         except sqlite3.IntegrityError:
-            # на всякий случай — если вдруг hash успел появиться в параллельном процессе
-            duplicates.append(original_name)
+            # Если такой хеш уже в базе — считаем дубликатом
+            duplicates.append(original_name)    
 
     # 5) Формируем и возвращаем отчёт
     report_lines = [
@@ -446,8 +464,6 @@ def process_zip_add(zip_path, uploaded_by, bot):
     added, duplicates, not_pdf = [], [], []
     seen_hashes = set()
 
-    from database import is_duplicate_hash, insert_ticket
-
     with ZipFile(zip_path, 'r') as zip_ref:
         for file_info in zip_ref.infolist():
             original_name = file_info.filename
@@ -467,9 +483,19 @@ def process_zip_add(zip_path, uploaded_by, bot):
             full_path = os.path.join(DEFAULT_TICKET_FOLDER, uuid_name)
             with open(full_path, "wb") as f:
                 f.write(content)
-            # ВНИМАНИЕ: Больше не трогаем wave_id здесь!
+            # Вставляем запись о новом билете и сразу привязываем её к текущей волне
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
-            # wave_id будет назначен позже, после /confirm_wave
+
+            wave_id = get_current_wave_id()
+            if wave_id is not None:
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE tickets SET wave_id = ? WHERE file_path = ?",
+                    (wave_id, full_path),
+                )
+                conn.commit()
+                conn.close()
             added.append((original_name, uuid_name))
 
     report_lines = [
