@@ -498,6 +498,17 @@ def process_zip_add(zip_path, uploaded_by, bot):
                 conn.close()
             added.append((original_name, uuid_name))
 
+    # если в этой дозагрузке не было НИ ОДНОГО нового файла — сообщаем и выходим
+    if not added:
+        bot.send_message(
+            uploaded_by,
+            "⛔️ В архиве нет новых PDF-файлов (все либо дубликаты, либо не PDF).",
+            parse_mode="HTML"
+        )
+        return None
+
+    # далее собираем отчёт по added/duplicates/not_pdf как раньше
+
     report_lines = [
         "=== Отчёт по ДОЗАГРУЗКЕ билетов ===",
         f"Добавлено новых файлов: {len(added)}",
