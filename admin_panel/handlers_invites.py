@@ -59,17 +59,38 @@ def register_invites_handlers(bot):
     def export_users_handler(message):
         ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "Нет прав.")
+            bot.reply_to(message, "❌ У вас нет прав.")
             return
 
+        # Генерируем файл и получаем число пользователей и админов
         path, user_count, admin_count = export_users_xlsx()
+
+        # Если нет пользователей — сразу информируем и выходим
+        if user_count == 0:
+            bot.send_message(
+                message.chat.id,
+                "⚠️ Нет зарегистрированных пользователей — нечего экспортировать."
+            )
+            # Удаляем файл, если он был создан
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return
+
+        # Иначе отправляем документ с данными
         with open(path, "rb") as doc:
             bot.send_document(
                 message.chat.id,
                 doc,
-                caption=f"Пользователей: {user_count}\nАдминов: {admin_count}"
+                caption=f"👥 Пользователей: {user_count}\n🔑 Админов: {admin_count}"
             )
-        os.remove(path)
+
+        # Чистим временный файл
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
     @bot.message_handler(commands=['delete_user'])
     @admin_required(bot)

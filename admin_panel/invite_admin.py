@@ -90,6 +90,9 @@ def export_users_xlsx():
         worksheet.write(0, 1, "username")
         worksheet.write(0, 2, "user_id")
 
+        # Если пользователей нет, гарантируем idx для итоговых строк
+        idx = 0
+
         for idx, (invite_code, username, user_id) in enumerate(rows, 1):
             worksheet.write(idx, 0, invite_code)
             worksheet.write(idx, 1, f"@{username}" if username else "")

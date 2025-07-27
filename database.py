@@ -318,26 +318,7 @@ def clear_user_assignments(user_id, exclude_path=None):
     conn.commit()
     conn.close()
 
-# --- Фильтры для статистики ---
-def get_stats_statuses():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    # Свободные: НЕ выданы, не архив, не lost, файл существует
-    cur.execute("SELECT file_path FROM tickets WHERE assigned_to IS NULL AND archived_unused=0 AND lost=0")
-    free_files = [f for (f,) in cur.fetchall() if os.path.isfile(f)]
-    free_tickets = len(free_files)
-
-    # Выданные: assigned_to IS NOT NULL, lost=0
-    cur.execute("SELECT COUNT(*) FROM tickets WHERE assigned_to IS NOT NULL AND lost=0")
-    issued_tickets = cur.fetchone()[0]
-
-    # Утраченные: lost=1
-    cur.execute("SELECT COUNT(*) FROM tickets WHERE lost=1")
-    lost_tickets = cur.fetchone()[0]
-
-    conn.close()
-    return free_tickets, issued_tickets, lost_tickets
-
+# Фильтры для статистики 
 # === WAVES ===
 def init_wave_table():
     conn = sqlite3.connect(DB_PATH)
@@ -370,35 +351,6 @@ def get_latest_wave():
     row = cur.fetchone()
     conn.close()
     return datetime.fromisoformat(row[0]) if row else None
-
-# === STATS ===
-def get_wave_stats(wave_start):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM users WHERE last_ticket_at >= ?", (wave_start.isoformat(),))
-    users_with_ticket = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM tickets WHERE assigned_to IS NULL")
-    free_tickets = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM users")
-    all_users = cur.fetchone()[0]
-    conn.close()
-    return users_with_ticket, free_tickets, all_users
-
-def get_free_ticket_count():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM tickets WHERE assigned_to IS NULL")
-    count = cur.fetchone()[0]
-    conn.close()
-    return count
-
-def get_wave_count():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM waves")
-    count = cur.fetchone()[0]
-    conn.close()
-    return count
 
 # АДМИНЫ
 

@@ -15,7 +15,6 @@ from .utils import (
 )
 from config import DEFAULT_TICKET_FOLDER
 from database import (
-    get_free_ticket_count,
     is_duplicate_hash,
     insert_ticket,
     get_wave_state,
