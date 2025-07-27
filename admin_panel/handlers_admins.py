@@ -7,12 +7,15 @@ from database import (
     get_user_id_by_username,
     FOUNDER_IDS
 )
+import logging
+logger = logging.getLogger(__name__)
 
 def register_admins_handlers(bot):
     @bot.message_handler(commands=['add_admin'])
     @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_add_admin(message):
+        logger.info("Команда /add_admin вызвана пользователем %d", message.from_user.id)
         ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "❌ Нет прав для этой команды.")
@@ -43,6 +46,7 @@ def register_admins_handlers(bot):
     @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_remove_admin(message):
+        logger.info("Команда /remove_admin вызвана пользователем %d", message.from_user.id)
         ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "❌ Нет прав для этой команды.")
@@ -64,7 +68,7 @@ def register_admins_handlers(bot):
             return
 
         if user_id in FOUNDER_IDS:
-            bot.reply_to(message, "❌ Нельзя удалить основателя из админов.")
+            bot.reply_to(message, "❌ Нельзя удалить этого администратора.")
             return
 
         if user_id == message.from_user.id:

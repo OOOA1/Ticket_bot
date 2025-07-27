@@ -1,5 +1,7 @@
 import sqlite3
 import os
+import logging
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from .utils import admin_error_catcher, load_admins, admin_required
 from database import (
@@ -15,11 +17,13 @@ from database import (
     DB_PATH,
 )
 
+
 def register_wave_handlers(bot):
     @bot.message_handler(commands=['new_wave'])
     @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_new_wave(message):
+        logger.info("Команда /new_wave вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "❌ У вас нет прав.")
@@ -83,6 +87,7 @@ def register_wave_handlers(bot):
     @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_confirm_wave(message):
+        logger.info("Команда /confirm_wave вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "❌ У вас нет прав.")
@@ -153,6 +158,7 @@ def register_wave_handlers(bot):
     @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_end_wave(message):
+        logger.info("Команда /end_wave вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "❌ У вас нет прав.")

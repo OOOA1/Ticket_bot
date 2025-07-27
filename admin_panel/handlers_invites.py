@@ -3,6 +3,8 @@ from admin_panel.invite_admin import export_users_xlsx
 from .utils import admin_error_catcher, awaiting_invite_count, admin_required, logger
 from database import get_admins, is_admin, delete_user_everywhere
 from admin_panel.invite_admin import generate_invites, export_invites_xlsx
+import logging
+logger = logging.getLogger(__name__)
 
 # Временное состояние для подтверждения удаления
 awaiting_delete_confirm = {}  # {admin_id: (user_id, username)}
@@ -12,6 +14,7 @@ def register_invites_handlers(bot):
     @admin_required(bot)
     @admin_error_catcher(bot)
     def ask_invite_count(message):
+        logger.info("Команда /gen_invites вызвана пользователем %d", message.from_user.id)
         ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
             return
@@ -28,6 +31,7 @@ def register_invites_handlers(bot):
 
         try:
             count = int(message.text)
+            logger.info("Генерация %d инвайт-кодов пользователем %d", count, message.from_user.id)
             if not (1 <= count <= 5000):
                 bot.send_message(message.chat.id, "Можно генерировать от 1 до 5000 кодов за раз.")
                 return
@@ -57,6 +61,7 @@ def register_invites_handlers(bot):
     @admin_required(bot)
     @admin_error_catcher(bot)
     def export_users_handler(message):
+        logger.info("Команда /export_users вызвана пользователем %d", message.from_user.id)
         ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "❌ У вас нет прав.")
@@ -64,6 +69,7 @@ def register_invites_handlers(bot):
 
         # Генерируем файл и получаем число пользователей и админов
         path, user_count, admin_count = export_users_xlsx()
+        logger.info("Экспорт пользователей: всего=%d, админов=%d, файл=%s", user_count, admin_count, path)
 
         # Если нет пользователей — сразу информируем и выходим
         if user_count == 0:

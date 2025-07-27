@@ -5,6 +5,8 @@ from admin_panel import register_admin_handlers
 from admin_panel.utils import log_chat
 from telebot.handler_backends import BaseMiddleware
 import sqlite3
+import logging
+logger = logging.getLogger(__name__)
 
 bot = telebot.TeleBot(BOT_TOKEN, use_class_middlewares=True)
 
@@ -83,6 +85,7 @@ def handle_start(message):
         log_chat(user_id, "BOT", "Вы пытаетесь начать общение с ботом без приглашения. Для получения приглоашения свяжитесь с администратором.")
         return
     invite_code = args[1]
+    logger.info("Пользователь %d пытается активировать код %s", user_id, invite_code)
 
     conn = sqlite3.connect("users.db")
     cur = conn.cursor()
@@ -150,6 +153,7 @@ def handle_start(message):
     )
     conn.commit()
     conn.close()
+    logger.info("Код %s активирован пользователем %d", invite_code, user_id)
 
     add_user(user_id, message.from_user.username)
 
@@ -163,7 +167,7 @@ def handle_start(message):
                          "Скоро вы получите информацию о доступных матчах⚽.")
 
 def run_bot():
-    print("Бот запущен.")
+    logger.info("Бот запущен и готов принимать команды")
     bot.infinity_polling(timeout=30, long_polling_timeout=10)
 
 if __name__ == "__main__":

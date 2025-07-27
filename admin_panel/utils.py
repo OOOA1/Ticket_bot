@@ -1,4 +1,3 @@
-import os
 import logging
 from datetime import datetime
 from database import get_admins, is_registered
@@ -24,7 +23,7 @@ logging.basicConfig(
         logging.StreamHandler()  # вывод ошибок в консоль
     ]
 )
-logger = logging.getLogger("admin_panel")
+logger = logging.getLogger(__name__)
 
 def load_admins() -> list[int]:
     """Возвращает список ID админов из БД."""

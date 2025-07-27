@@ -29,6 +29,8 @@ from database import (
     DB_PATH,
     archive_missing_tickets
 )
+import logging
+logger = logging.getLogger(__name__)
 
 def register_tickets_handlers(bot):
     @bot.message_handler(commands=['delete_all'])
@@ -406,6 +408,15 @@ def process_zip(zip_path, uploaded_by, bot):
         )
         logger.info(f"Архив старых билетов создан: {archive_result}")
 
+    # Логи: итоги сканирования архива
+    logger.info(
+        "process_zip: всего=%d, новых=%d, дубликаты=%d, не-PDF=%d",
+        len(seen_hashes) + len(duplicates) + len(not_pdf),
+        len(temp_store),
+        len(duplicates),
+        len(not_pdf)
+    )
+
     # 4) Сохраняем новые файлы и вносим запись в БД
     
     for content, file_hash, original_name, full_path, uuid_name in temp_store:
@@ -461,6 +472,7 @@ def process_zip(zip_path, uploaded_by, bot):
 
 def process_zip_add(zip_path, uploaded_by, bot):
     added, duplicates, not_pdf = [], [], []
+    logger.info("process_zip_add: получен ZIP %s, user_id=%d", zip_path, uploaded_by)
     seen_hashes = set()
 
     with ZipFile(zip_path, 'r') as zip_ref:
@@ -505,6 +517,14 @@ def process_zip_add(zip_path, uploaded_by, bot):
             parse_mode="HTML"
         )
         return None
+
+    # Логируем итоги дозагрузки
+    logger.info(
+        "process_zip_add: добавлено=%d, дубликаты=%d, не-PDF=%d",
+        len(added),
+        len(duplicates),
+        len(not_pdf)
+    )
 
     # далее собираем отчёт по added/duplicates/not_pdf как раньше
 

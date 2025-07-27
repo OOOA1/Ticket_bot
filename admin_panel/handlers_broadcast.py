@@ -1,6 +1,8 @@
 import time
 from .utils import admin_error_catcher, load_admins, admin_required, log_chat
 from database import get_all_user_ids
+import logging
+logger = logging.getLogger(__name__)
 
 def register_broadcast_handlers(bot):
     @bot.message_handler(
@@ -10,6 +12,7 @@ def register_broadcast_handlers(bot):
     @admin_required(bot)
     @admin_error_catcher(bot)
     def handle_broadcast(message):
+        logger.info("Команда /broadcast вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "Нет прав для этой команды.")

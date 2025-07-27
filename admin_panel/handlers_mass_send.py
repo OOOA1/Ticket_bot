@@ -26,6 +26,8 @@ from database import (
 )
 from .utils import load_admins, logger, admin_required, admin_error_catcher, log_chat
 from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
 
 # === Telegram 429 обработка ===
 def try_send_with_telegram_limit(send_func, *args, **kwargs):
@@ -55,6 +57,7 @@ def try_send_with_telegram_limit(send_func, *args, **kwargs):
 def register_mass_send_handler(bot):
     @bot.message_handler(commands=['send_tickets'])
     def handle_send_tickets(message):
+        logger.info("Команда /send_tickets вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
             bot.reply_to(message, "❌ Нет прав.")
@@ -85,6 +88,7 @@ def register_mass_send_handler(bot):
         already_count = 0
         start_time = time.time()
         failed_this_time = []
+        logger.info("Начало рассылки: волна %d, всего пользователей %d", wave_id, len(user_ids))
 
         for idx, user_id in enumerate(user_ids, 1):
             last_ticket = get_user_last_ticket_time(user_id)
@@ -110,6 +114,7 @@ def register_mass_send_handler(bot):
 
             if not os.path.isfile(ticket_path):
                 # Шаг 1: файл не найден – регистрируем неудачную доставку и уведомляем админов
+                        logger.error("Файл билета не найден: %s для user_id=%d", ticket_path, user_id)
                         add_failed_delivery(user_id, ticket_path)
                         for admin_id in get_admins():
                             try:
@@ -291,7 +296,10 @@ def register_mass_send_handler(bot):
                 f"Осталось: {len(pending_after_retry)}\n"
                 f"Время: {total_time_retry}s"
             )
-            logger.info(f"Авторассылка: sent={retry_sent}, failed={retry_failed}, left={len(pending_after_retry)}")
+            logger.info(
+                "Рассылка завершена: отправлено=%d, ошибок=%d, скипнуто=%d, общее время=%ds",
+                sent_count, failed_count, already_count, int(time.time() - start_time)
+            )
 
     @bot.message_handler(commands=['failed_report'])
     @admin_required(bot)
