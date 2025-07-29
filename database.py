@@ -299,22 +299,36 @@ def release_ticket(ticket_path):
     conn.commit()
     conn.close()
 
-def clear_user_assignments(user_id, exclude_path=None):
-    # Снять все назначения билетов у пользователя (optionally, кроме одного). Это предотвращает ситуацию, когда у одного user_id «висят» несколько билетов.
-
+def clear_user_assignments(user_id, current_wave_id=None, exclude_path=None):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    if exclude_path:
-        cur.execute(
-            "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL "
-            "WHERE assigned_to = ? AND file_path != ?",
-            (user_id, exclude_path)
-        )
+
+    if current_wave_id:
+        if exclude_path:
+            cur.execute(
+                "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL "
+                "WHERE assigned_to = ? AND file_path != ? AND wave_id = ?",
+                (user_id, exclude_path, current_wave_id)
+            )
+        else:
+            cur.execute(
+                "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL "
+                "WHERE assigned_to = ? AND wave_id = ?",
+                (user_id, current_wave_id)
+            )
     else:
-        cur.execute(
-            "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL WHERE assigned_to = ?",
-            (user_id,)
-        )
+        if exclude_path:
+            cur.execute(
+                "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL "
+                "WHERE assigned_to = ? AND file_path != ?",
+                (user_id, exclude_path)
+            )
+        else:
+            cur.execute(
+                "UPDATE tickets SET assigned_to = NULL, assigned_at = NULL WHERE assigned_to = ?",
+                (user_id,)
+            )
+
     conn.commit()
     conn.close()
 

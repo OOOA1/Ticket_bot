@@ -108,7 +108,7 @@ def register_mass_send_handler(bot):
                     )
                     logger.info("Рассылка завершена: билеты закончились.")
                     break
-                clear_user_assignments(user_id)
+                clear_user_assignments(user_id, current_wave_id=wave_id)
                 reserve_ticket_for_user(ticket_path, user_id)
                 add_failed_delivery(user_id, ticket_path)
 

@@ -5,7 +5,6 @@ import xlsxwriter
 from zipfile import ZipFile
 import shutil
 import hashlib
-import time
 from uuid import uuid4
 from datetime import datetime
 from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets, get_current_wave_id
@@ -13,11 +12,11 @@ from .utils import (
     admin_error_catcher, load_admins, upload_waiting, logger, admin_required,
     upload_files_received, upload_files_time, log_chat
 )
+import time  # понадобится для таймаута
 from config import DEFAULT_TICKET_FOLDER
 from database import (
     is_duplicate_hash,
     insert_ticket,
-    get_wave_state,
     resolve_user_id,
     get_user_last_ticket_time,
     get_latest_wave,
@@ -29,8 +28,6 @@ from database import (
     DB_PATH,
     archive_missing_tickets
 )
-import logging
-logger = logging.getLogger(__name__)
 
 def register_tickets_handlers(bot):
     @bot.message_handler(commands=['delete_all'])
@@ -157,7 +154,7 @@ def register_tickets_handlers(bot):
         ADMINS = load_admins()
         user_id = message.from_user.id
 
-        # Безопасная проверка: если вне режима ожидания — молчим
+        # --- Безопасная проверка: если вне режима ожидания — молчим! ---
         if user_id not in upload_files_received or not upload_waiting.get(user_id):
             return
 
@@ -186,7 +183,7 @@ def register_tickets_handlers(bot):
                 upload_waiting[user_id] = False
                 return
 
-        # ОБЩАЯ ЛОГИКА ДЛЯ ЗАГРУЗКИ ОДНОГО ZIP
+        # ==== ОБЩАЯ ЛОГИКА ДЛЯ ЗАГРУЗКИ ОДНОГО ZIP ====
         if upload_files_received.get(user_id, 0) == 0:
             upload_files_time[user_id] = time.time()
         upload_files_received[user_id] = upload_files_received.get(user_id, 0) + 1
@@ -202,7 +199,7 @@ def register_tickets_handlers(bot):
         if elapsed < 2:
             time.sleep(2 - elapsed)
 
-        # Повторная защита от KeyError после задержки
+        # --- Повторная защита от KeyError после задержки ---
         if user_id not in upload_files_received or not upload_waiting.get(user_id):
             return
 
@@ -277,14 +274,25 @@ def register_tickets_handlers(bot):
             bot.reply_to(message, "Пользователь не найден в базе.")
             return
 
-        wave_start = get_latest_wave()
-        wave_id = get_current_wave_id()
-        if not wave_id or not wave_start:
-            bot.reply_to(message, "Нет активной волны.")
+        # ✅ Проверяем, активна ли волна
+        from database import get_wave_state, get_current_wave_id
+        state = get_wave_state()
+        if state["status"] != "active":
+            bot.reply_to(message, "❗️ Сейчас нет активной волны. Сначала выполните /confirm_wave.")
             return
 
+        wave_start = state["wave_start"]
+        wave_id = get_current_wave_id()
+        if not wave_id or not wave_start:
+            bot.reply_to(message, "❗️ Текущая волна не найдена.")
+            return
+
+        # Преобразуем wave_start в datetime
+        from datetime import datetime
+        wave_start_dt = datetime.fromisoformat(wave_start)
+
         last_ticket = get_user_last_ticket_time(user_id)
-        if last_ticket and last_ticket >= wave_start:
+        if last_ticket and last_ticket >= wave_start_dt:
             bot.reply_to(message, "Пользователь уже получил билет в этой волне.")
             return
 
@@ -300,13 +308,29 @@ def register_tickets_handlers(bot):
             log_chat(user_id, "BOT", f"[DOCUMENT] {os.path.basename(ticket_path)} (ручная выдача)")
             bot.reply_to(message, f"✅ Билет отправлен пользователю {user_ref}.")
             logger.info(f"Админ {message.from_user.id} выдал билет пользователю {user_id} через /force_give.")
+
+    # ✅ Оповещаем остальных админов
+            from database import get_admins
+            admins = get_admins()
+            for admin_id in admins:
+                if admin_id != message.from_user.id:
+                    try:
+                        bot.send_message(
+                            admin_id,
+                            f"🔔 Админ <b>{message.from_user.id}</b> (@{getattr(message.from_user, 'username', 'без username')}) "
+                            f"выдал билет вручную пользователю <b>{user_id}</b> через <code>/force_give</code>.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass  # если кто-то из админов заблокировал бота
+
         except Exception as e:
             bot.reply_to(message, f"Ошибка при отправке билета: {e}")
             logger.error(f"Ошибка выдачи билета через /force_give: {e}", exc_info=True)
 
 
 
-# Вспомогательные функции, используются только внутри tickets
+# ==== Вспомогательные функции, используются только внутри tickets ====
 
 def archive_old_tickets():
     # 1) Находим все PDF в папке
@@ -343,7 +367,7 @@ def archive_old_tickets():
     # 5) Удаляем временную папку
     shutil.rmtree(temp_folder)
 
-    # 6) Оставляем только 3 последних архива
+    # 6) RETENTION — оставляем только 3 последних архива
     max_archives = 3
     archives = sorted(
         f for f in os.listdir(archive_dir)
@@ -408,15 +432,6 @@ def process_zip(zip_path, uploaded_by, bot):
         )
         logger.info(f"Архив старых билетов создан: {archive_result}")
 
-    # Логи: итоги сканирования архива
-    logger.info(
-        "process_zip: всего=%d, новых=%d, дубликаты=%d, не-PDF=%d",
-        len(seen_hashes) + len(duplicates) + len(not_pdf),
-        len(temp_store),
-        len(duplicates),
-        len(not_pdf)
-    )
-
     # 4) Сохраняем новые файлы и вносим запись в БД
     
     for content, file_hash, original_name, full_path, uuid_name in temp_store:
@@ -425,11 +440,15 @@ def process_zip(zip_path, uploaded_by, bot):
             with open(full_path, "wb") as f:
                 f.write(content)
 
-             # Вставляем запись о новом билете
+             # 🟢 Вставляем запись о новом билете
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
 
-             # Привязываем билет к текущей волне сразу при первичной загрузке
-            wave_id = get_current_wave_id()
+             # 🟢 Привязываем билет к текущей волне сразу при первичной загрузке
+            state = get_wave_state()
+            if state["status"] == "awaiting_confirm":
+                wave_id = None  # волна не подтверждена — не привязываем
+            else:
+                wave_id = get_current_wave_id()
             if wave_id is not None:
                 conn = sqlite3.connect(DB_PATH)
                 cur = conn.cursor()
@@ -472,7 +491,6 @@ def process_zip(zip_path, uploaded_by, bot):
 
 def process_zip_add(zip_path, uploaded_by, bot):
     added, duplicates, not_pdf = [], [], []
-    logger.info("process_zip_add: получен ZIP %s, user_id=%d", zip_path, uploaded_by)
     seen_hashes = set()
 
     with ZipFile(zip_path, 'r') as zip_ref:
@@ -497,7 +515,11 @@ def process_zip_add(zip_path, uploaded_by, bot):
             # Вставляем запись о новом билете и сразу привязываем её к текущей волне
             insert_ticket(full_path, file_hash, original_name, uploaded_by)
 
-            wave_id = get_current_wave_id()
+            state = get_wave_state()
+            if state["status"] == "awaiting_confirm":
+                wave_id = None  # волна не подтверждена — не привязываем
+            else:
+                wave_id = get_current_wave_id()
             if wave_id is not None:
                 conn = sqlite3.connect(DB_PATH)
                 cur = conn.cursor()
@@ -508,25 +530,6 @@ def process_zip_add(zip_path, uploaded_by, bot):
                 conn.commit()
                 conn.close()
             added.append((original_name, uuid_name))
-
-    # если в этой дозагрузке не было НИ ОДНОГО нового файла — сообщаем и выходим
-    if not added:
-        bot.send_message(
-            uploaded_by,
-            "⛔️ В архиве нет новых PDF-файлов (все либо дубликаты, либо не PDF).",
-            parse_mode="HTML"
-        )
-        return None
-
-    # Логируем итоги дозагрузки
-    logger.info(
-        "process_zip_add: добавлено=%d, дубликаты=%d, не-PDF=%d",
-        len(added),
-        len(duplicates),
-        len(not_pdf)
-    )
-
-    # далее собираем отчёт по added/duplicates/not_pdf как раньше
 
     report_lines = [
         "=== Отчёт по ДОЗАГРУЗКЕ билетов ===",
