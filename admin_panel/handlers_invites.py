@@ -1,6 +1,6 @@
 import os
 from admin_panel.invite_admin import export_users_xlsx
-from .utils import admin_error_catcher, awaiting_invite_count, admin_required, logger
+from .utils import admin_error_catcher, admin_required, logger
 from database import get_admins, is_admin, delete_user_everywhere
 from admin_panel.invite_admin import generate_invites, export_invites_xlsx
 import logging
@@ -13,49 +13,50 @@ def register_invites_handlers(bot):
     @bot.message_handler(commands=['gen_invites'])
     @admin_required(bot)
     @admin_error_catcher(bot)
-    def ask_invite_count(message):
+    def handle_gen_invites(message):
         logger.info("Команда /gen_invites вызвана пользователем %d", message.from_user.id)
         ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
             return
-        bot.send_message(message.chat.id, "Сколько инвайт-кодов сгенерировать?")
-        awaiting_invite_count[message.from_user.id] = True
 
-    @bot.message_handler(func=lambda m: awaiting_invite_count.get(m.from_user.id))
-    @admin_required(bot)
-    @admin_error_catcher(bot)
-    def generate_and_send_invites(message):
-        ADMINS = get_admins()
-        if message.from_user.id not in ADMINS:
-            return
-
-        try:
-            count = int(message.text)
-            logger.info("Генерация %d инвайт-кодов пользователем %d", count, message.from_user.id)
+        args = message.text.strip().split()
+        if len(args) == 2 and args[1].isdigit():
+            count = int(args[1])
             if not (1 <= count <= 5000):
                 bot.send_message(message.chat.id, "Можно генерировать от 1 до 5000 кодов за раз.")
                 return
-        except ValueError:
-            bot.send_message(message.chat.id, "Введи число — сколько кодов нужно сгенерировать.")
-            return
 
-        awaiting_invite_count.pop(message.from_user.id, None)
+            codes = generate_invites(count)
+            temp_path = export_invites_xlsx(codes)
 
-        codes = generate_invites(count)
-        temp_path = export_invites_xlsx(codes)
+            with open(temp_path, "rb") as doc:
+                bot.send_document(message.chat.id, doc, caption=f"Готово! {count} инвайтов сгенерировано.")
+            os.remove(temp_path)
 
-        # Отправляем файл инициатору
-        with open(temp_path, "rb") as doc:
-            bot.send_document(message.chat.id, doc, caption=f"Готово! {count} инвайтов сгенерировано.")
-        os.remove(temp_path)
+            logger.info(f"Пользователь {message.from_user.id} сгенерировал {count} инвайт-кодов, файл: {temp_path}")
 
-        # Уведомляем остальных админов
-        for admin_id in ADMINS:
-            if admin_id != message.from_user.id:
-                bot.send_message(
-                    admin_id,
-                    f"🔑 @{message.from_user.username} сгенерировал {count} новых invite-кодов."
-                )
+            for admin_id in ADMINS:
+                try:
+                    admin_id = int(admin_id)
+                    if admin_id == message.from_user.id:
+                        continue
+                    if admin_id <= 0:
+                        continue
+                    bot.send_message(
+                        admin_id,
+                        f"🔑 @{message.from_user.username} сгенерировал {count} новых invite-кодов."
+                    )
+                except Exception as e:
+                    print(f"❌ Ошибка отправки админу {admin_id}: {e}")
+
+        else:
+            bot.send_message(
+                message.chat.id,
+                "Используйте: /gen_invites <количество> (от 1 до 5000)\n\n"
+                "Пример: /gen_invites 10"
+            )
+
+
 
     @bot.message_handler(commands=['export_users'])
     @admin_required(bot)

@@ -3,12 +3,14 @@ from config import BOT_TOKEN
 from database import init_db, add_user, get_admins
 from admin_panel import register_admin_handlers
 from admin_panel.utils import log_chat
+from admin_panel.admin_menu import register_admin_menu
 from telebot.handler_backends import BaseMiddleware
 import sqlite3
 import logging
 logger = logging.getLogger(__name__)
 
 bot = telebot.TeleBot(BOT_TOKEN, use_class_middlewares=True)
+register_admin_menu(bot)
 
 class LogChatMiddleware(BaseMiddleware):
     def __init__(self):

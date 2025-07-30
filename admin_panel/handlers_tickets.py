@@ -7,7 +7,6 @@ import shutil
 import hashlib
 from uuid import uuid4
 from datetime import datetime
-from database import mark_ticket_archived_unused, mark_ticket_lost, archive_missing_tickets, archive_all_old_free_tickets, get_current_wave_id
 from .utils import (
     admin_error_catcher, load_admins, upload_waiting, logger, admin_required,
     upload_files_received, upload_files_time, log_chat
@@ -19,14 +18,15 @@ from database import (
     insert_ticket,
     resolve_user_id,
     get_user_last_ticket_time,
-    get_latest_wave,
     get_current_wave_id,
     get_free_ticket,
     assign_ticket,
     is_registered,
     get_wave_state,
     DB_PATH,
-    archive_missing_tickets
+    archive_missing_tickets,
+    mark_ticket_lost,
+    mark_ticket_archived_unused
 )
 
 def register_tickets_handlers(bot):
@@ -275,7 +275,6 @@ def register_tickets_handlers(bot):
             return
 
         # ✅ Проверяем, активна ли волна
-        from database import get_wave_state, get_current_wave_id
         state = get_wave_state()
         if state["status"] != "active":
             bot.reply_to(message, "❗️ Сейчас нет активной волны. Сначала выполните /confirm_wave.")

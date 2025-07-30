@@ -4,9 +4,21 @@ from database import get_all_user_ids
 import logging
 logger = logging.getLogger(__name__)
 
+def is_broadcast_command(m):
+    # Ручной ввод (текст)
+    if m.text and m.text.startswith('/broadcast'):
+        return True
+    # Ручной ввод или пересылка с caption
+    if m.caption and m.caption.startswith('/broadcast'):
+        return True
+    # Вызов через меню: text подставлен как "/broadcast"
+    if m.content_type in ['document', 'photo', 'animation', 'video'] and (hasattr(m, 'text') and m.text == '/broadcast'):
+        return True
+    return False
+
 def register_broadcast_handlers(bot):
     @bot.message_handler(
-        func=lambda m: (m.text and m.text.startswith('/broadcast')) or (m.caption and m.caption.startswith('/broadcast')),
+        func=is_broadcast_command,
         content_types=['text', 'photo', 'animation', 'document', 'video']
     )
     @admin_required(bot)
@@ -15,7 +27,7 @@ def register_broadcast_handlers(bot):
         logger.info("Команда /broadcast вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "Нет прав для этой команды.")
+            bot.send_message(message.chat.id, "Нет прав для этой команды.")
             return
 
         user_ids = get_all_user_ids()
@@ -23,11 +35,14 @@ def register_broadcast_handlers(bot):
         failed_ids = []
         sent_ids = []
 
-        # Выделяем текст рассылки (для caption/text)
+        # Выделяем текст рассылки (caption для медиа, text для текста)
         if message.content_type in ['photo', 'animation', 'document', 'video']:
-            caption = (message.caption or '').replace('/broadcast', '', 1).strip()
+            if message.caption and message.caption.startswith('/broadcast'):
+                caption = message.caption.replace('/broadcast', '', 1).strip()
+            else:
+                caption = (message.caption or '').strip()
         else:
-            caption = message.text.replace('/broadcast', '', 1).strip()
+            caption = message.text.replace('/broadcast', '', 1).strip() if message.text else ""
 
         # Для фото
         if message.content_type == 'photo':
@@ -43,7 +58,7 @@ def register_broadcast_handlers(bot):
                     fail += 1
                     failed_ids.append(user_id)
                 time.sleep(0.04)
-            bot.reply_to(message, f"📸 Фото-рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
+            bot.send_message(message.chat.id, f"📸 Фото-рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
 
         # Для GIF/animation
         elif message.content_type == 'animation':
@@ -59,12 +74,13 @@ def register_broadcast_handlers(bot):
                     fail += 1
                     failed_ids.append(user_id)
                 time.sleep(0.04)
-            bot.reply_to(message, f"🎞 GIF-рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
+            bot.send_message(message.chat.id, f"🎞 GIF-рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
 
-        # Для документов (pdf, png, jpg как файл и т.д.)
+        # Для документов (pdf, zip, png, jpg как файл и т.д.)
         elif message.content_type == 'document':
             media_id = message.document.file_id
             file_name = getattr(message.document, 'file_name', 'document')
+            # ВНИМАНИЕ: не проверяем caption, можно рассылать даже если он пустой!
             for user_id in user_ids:
                 try:
                     bot.send_document(user_id, media_id, caption=caption)
@@ -76,7 +92,7 @@ def register_broadcast_handlers(bot):
                     fail += 1
                     failed_ids.append(user_id)
                 time.sleep(0.04)
-            bot.reply_to(message, f"📄 Рассылка файла завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
+            bot.send_message(message.chat.id, f"📄 Рассылка файла завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
 
         # Для видео
         elif message.content_type == 'video':
@@ -91,12 +107,12 @@ def register_broadcast_handlers(bot):
                     fail += 1
                     failed_ids.append(user_id)
                 time.sleep(0.04)
-            bot.reply_to(message, f"🎬 Видео-рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
+            bot.send_message(message.chat.id, f"🎬 Видео-рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
 
         # Для текста
         elif message.content_type == 'text':
             if not caption:
-                bot.reply_to(message, "Используй так: /broadcast текст_сообщения или прикрепи медиа с подписью.")
+                bot.send_message(message.chat.id, "Используй так: /broadcast текст_сообщения или прикрепи медиа с подписью.")
                 return
             for user_id in user_ids:
                 try:
@@ -109,7 +125,7 @@ def register_broadcast_handlers(bot):
                     fail += 1
                     failed_ids.append(user_id)
                 time.sleep(0.04)
-            bot.reply_to(message, f"💬 Текстовая рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
+            bot.send_message(message.chat.id, f"💬 Текстовая рассылка завершена!\n✅ Доставлено: {success}\n❌ Ошибок: {fail}")
 
         # Вывод итоговых id в консоль (отладка)
         print(f"===[РАССЫЛКА /broadcast]===")
