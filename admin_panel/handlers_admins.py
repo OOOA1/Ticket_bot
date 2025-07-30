@@ -22,7 +22,7 @@ def register_admins_handlers(bot):
         logger.info("Команда /add_admin вызвана пользователем %d", message.from_user.id)
         ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "❌ Нет прав для этой команды.")
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
             return
 
         parts = message.text.strip().split(maxsplit=1)

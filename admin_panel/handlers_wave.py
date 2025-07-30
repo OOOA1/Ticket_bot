@@ -26,7 +26,7 @@ def register_wave_handlers(bot):
         logger.info("Команда /new_wave вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "❌ У вас нет прав.")
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
             return
 
         state = get_wave_state()
@@ -90,7 +90,7 @@ def register_wave_handlers(bot):
         logger.info("Команда /confirm_wave вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "❌ У вас нет прав.")
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
             return
 
         state = get_wave_state()
@@ -161,7 +161,7 @@ def register_wave_handlers(bot):
         logger.info("Команда /end_wave вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "❌ У вас нет прав.")
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
             return
 
         state = get_wave_state()
@@ -290,7 +290,7 @@ def register_wave_handlers(bot):
     def handle_stats(message):
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "❌ У вас нет прав.")
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
             return
 
         # 1. Актуализация: проверка файлов на утрату

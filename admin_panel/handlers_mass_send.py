@@ -60,7 +60,7 @@ def register_mass_send_handler(bot):
         logger.info("Команда /send_tickets вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "❌ Нет прав.")
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
             return
 
         # 1. Проверяем статус волны

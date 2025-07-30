@@ -13,10 +13,10 @@ def menu_error_catcher(func):
         except Exception as e:
             if "message to be replied not found" in str(e):
                 logger.warning(f"[MENU] Ошибка reply_to: {e}")
-                bot.send_message(message.chat.id, "⚠️ Не удалось отправить ответ. Просто нажмите на кнопку ещё раз.")
+                bot.send_message(message.chat.id, "⚠️Не удалось отправить ответ. Нажмите на кнопку ещё раз.")
             else:
                 logger.error(f"Ошибка в хендлере меню {func.__name__}: {e}", exc_info=True)
-                bot.send_message(message.chat.id, "Произошла ошибка. Повторите действие.")
+                bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
     return wrapper
 
 def register_admin_menu(bot):
@@ -50,7 +50,7 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] Админ {message.from_user.id} открыл меню.")
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
-            bot.send_message(message.chat.id, "Нет прав для доступа к меню.")
+            bot.send_message(message.chat.id, "У вас нет доступа к этому разделу.")
             return
 
         markup = InlineKeyboardMarkup(row_width=2)
@@ -82,7 +82,7 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] Админ {call.from_user.id} — возврат в главное меню.")
         ADMINS = load_admins()
         if call.from_user.id not in ADMINS:
-            bot.answer_callback_query(call.id, "Нет прав.")
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
             return
         try:
             bot.edit_message_text("Главное меню:", call.message.chat.id, call.message.message_id, reply_markup=None)
@@ -98,7 +98,7 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] {call.from_user.id} — раздел 'Админ-команды'.")
         ADMINS = load_admins()
         if call.from_user.id not in ADMINS:
-            bot.answer_callback_query(call.id, "Нет прав.")
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
             return
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -120,7 +120,7 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] {call.from_user.id} — раздел 'Пользователи'.")
         ADMINS = load_admins()
         if call.from_user.id not in ADMINS:
-            bot.answer_callback_query(call.id, "Нет прав.")
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
             return
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -140,7 +140,7 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] {call.from_user.id} — раздел 'Логи'.")
         ADMINS = load_admins()
         if call.from_user.id not in ADMINS:
-            bot.answer_callback_query(call.id, "Нет прав.")
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
             return
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -155,7 +155,7 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] {call.from_user.id} — раздел 'Рассылки'.")
         ADMINS = load_admins()
         if call.from_user.id not in ADMINS:
-            bot.answer_callback_query(call.id, "Нет прав.")
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
             return
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -170,7 +170,7 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] {call.from_user.id} — раздел 'Отчёты'.")
         ADMINS = load_admins()
         if call.from_user.id not in ADMINS:
-            bot.answer_callback_query(call.id, "Нет прав.")
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
             return
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -187,11 +187,11 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] {call.from_user.id} — раздел 'В случае проблем'.")
         ADMINS = load_admins()
         if call.from_user.id not in ADMINS:
-            bot.answer_callback_query(call.id, "Нет прав.")
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
             return
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
-            InlineKeyboardButton("Форс-выдача билета", callback_data="cmd_force_give"),
+            InlineKeyboardButton("Ручная выдача билета", callback_data="cmd_force_give"),
             InlineKeyboardButton("Удалить все билеты", callback_data="cmd_delete_all"),
             InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
         )
@@ -204,11 +204,16 @@ def register_admin_menu(bot):
         logger.info(f"[MENU] {call.from_user.id} нажал {call.data}")
         ADMINS = load_admins()
         if call.from_user.id not in ADMINS:
-            bot.answer_callback_query(call.id, "Нет прав.")
+            bot.answer_callback_query(call.id, "У вас нет доступа к этой функции.")
             return
 
         data = call.data
         user_id = call.from_user.id
+
+        if data == "cmd_myid":
+            bot.send_message(call.message.chat.id, f"Ваш user_id: <code>{user_id}</code>", parse_mode="HTML")
+            bot.answer_callback_query(call.id)
+            return
 
         # Команды, которые требуют аргументов (ожидание ввода)
         arg_cmds = {
@@ -225,13 +230,13 @@ def register_admin_menu(bot):
         if data in arg_cmds:
             awaiting_args[user_id] = arg_cmds[data]
             prompts = {
-                "broadcast": "Введите текст для рассылки или прикрепите медиа с подписью:",
-                "gen_invites": "Сколько инвайт-кодов сгенерировать?",
-                "chatlog": "Введите user_id или @username для получения chatlog:",
-                "force_give": "Введите user_id или @username для ручной выдачи билета:",
-                "delete_user": "Введите: user_id и @username через пробел (например, 123456 @user):",
-                "add_admin": "Введите @username нового администратора:",
-                "remove_admin": "Введите @username администратора для удаления:",
+                "broadcast": "Пожалуйста, введите текст, прикрепите картинку, gif, документ, видео или аудио запись:",
+                "gen_invites": "Сколько приглашений сгенерировать?",
+                "chatlog": "Пожалуйста, введите user_id или @username для получения переписки пользователя с ботом:",
+                "force_give": "Пожалуйста, введите user_id или @username для ручной выдачи билета одному пользователю:",
+                "delete_user": "Пожалуйста, введите user_id и @username через пробел (например, 123456 @user):",
+                "add_admin": "Пожалуйста, введите @username нового администратора:",
+                "remove_admin": "Пожалуйста, введите @username администратора для удаления:",
             }
             logger.info(f"[MENU] {call.from_user.id} — ожидание аргументов для команды {arg_cmds[data]}")
             bot.send_message(call.message.chat.id, prompts[arg_cmds[data]])

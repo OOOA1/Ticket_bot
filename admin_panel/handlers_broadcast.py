@@ -27,7 +27,7 @@ def register_broadcast_handlers(bot):
         logger.info("Команда /broadcast вызвана пользователем %d", message.from_user.id)
         ADMINS = load_admins()
         if message.from_user.id not in ADMINS:
-            bot.send_message(message.chat.id, "Нет прав для этой команды.")
+            bot.send_message(message.chat.id, "У вас нет доступа к этой функции.")
             return
 
         user_ids = get_all_user_ids()
@@ -54,7 +54,7 @@ def register_broadcast_handlers(bot):
                     success += 1
                     sent_ids.append(user_id)
                 except Exception as e:
-                    print(f"❌ Ошибка send_photo для {user_id}: {e}")
+                    print(f"Ошибка send_photo для {user_id}: {e}")
                     fail += 1
                     failed_ids.append(user_id)
                 time.sleep(0.04)

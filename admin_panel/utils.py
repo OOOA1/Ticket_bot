@@ -68,7 +68,7 @@ def admin_required(bot):
                 
                 try:
                     log_chat(user_id, "BOT", "Нет прав для этой команды.")
-                    bot.reply_to(message, "Нет прав для этой команды.")
+                    bot.reply_to(message, "У вас нет доступа к этой функции.")
                 except Exception:
                     pass
                 return

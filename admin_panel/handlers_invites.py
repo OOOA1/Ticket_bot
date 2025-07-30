@@ -23,14 +23,14 @@ def register_invites_handlers(bot):
         if len(args) == 2 and args[1].isdigit():
             count = int(args[1])
             if not (1 <= count <= 5000):
-                bot.send_message(message.chat.id, "Можно генерировать от 1 до 5000 кодов за раз.")
+                bot.send_message(message.chat.id, "Можно создать от 1 до 5000 приглашений за раз.")
                 return
 
             codes = generate_invites(count)
             temp_path = export_invites_xlsx(codes)
 
             with open(temp_path, "rb") as doc:
-                bot.send_document(message.chat.id, doc, caption=f"Готово! {count} инвайтов сгенерировано.")
+                bot.send_document(message.chat.id, doc, caption=f"Готово! {count} создано приглашений.")
             os.remove(temp_path)
 
             logger.info(f"Пользователь {message.from_user.id} сгенерировал {count} инвайт-кодов, файл: {temp_path}")
@@ -44,7 +44,7 @@ def register_invites_handlers(bot):
                         continue
                     bot.send_message(
                         admin_id,
-                        f"🔑 @{message.from_user.username} сгенерировал {count} новых invite-кодов."
+                        f"🔑 @{message.from_user.username} создал {count} новых приглашений."
                     )
                 except Exception as e:
                     print(f"❌ Ошибка отправки админу {admin_id}: {e}")
@@ -65,7 +65,7 @@ def register_invites_handlers(bot):
         logger.info("Команда /export_users вызвана пользователем %d", message.from_user.id)
         ADMINS = get_admins()
         if message.from_user.id not in ADMINS:
-            bot.reply_to(message, "❌ У вас нет прав.")
+            bot.reply_to(message, "У вас нет доступа к этой функции.")
             return
 
         # Генерируем файл и получаем число пользователей и админов
