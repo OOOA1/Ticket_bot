@@ -145,6 +145,12 @@ def register_mass_send_handler(bot):
                     remove_failed_delivery(user_id)
                     log_chat(user_id, "BOT", f"[DOCUMENT] {os.path.basename(ticket_path)}")
                     sent_count += 1
+
+                    if sent_count == 1 or sent_count % 20 == 0:
+                        bot.send_message(
+                            message.chat.id,
+                            f"Рассылка: успешно отправлено {sent_count} из {len(user_ids)} билетов."
+                        )
                     logger.info(f"✅ Билет отправлен user_id={user_id} [{idx}/{len(user_ids)}], попытка {attempt}")
                     time.sleep(random.uniform(3.5, 5.0))
                     break
