@@ -174,6 +174,7 @@ def register_admin_menu(bot):
             return
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
+            InlineKeyboardButton("📊 Общий Excel-отчёт", callback_data="cmd_full_report"),
             InlineKeyboardButton("Failed-отчёт по рассылке билетов", callback_data="cmd_failed_report"),
             InlineKeyboardButton("Экспорт пользователей", callback_data="cmd_export_users"),
             InlineKeyboardButton("Экспорт билетов", callback_data="cmd_list_tickets"),
@@ -254,6 +255,7 @@ def register_admin_menu(bot):
             "cmd_stats": "/stats",
             "cmd_list_tickets": "/list_tickets",
 
+            "cmd_full_report": "/full_report",
             "cmd_export_users": "/export_users",
             "cmd_failed_report": "/failed_report",
             "cmd_delete_all": "/delete_all",
